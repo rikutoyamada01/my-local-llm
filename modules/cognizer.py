@@ -64,11 +64,8 @@ Logs:
 
 PROMPT_FINAL = """
 Here are the activity logs for {date}. 
-Browser History:
-{browser_summary}
-
-Window Activity:
-{window_summary}
+Activity Timeline:
+{timeline_summary}
 
 Synthesize these into a meaningful Daily Journal.
 """
@@ -95,6 +92,29 @@ def summarize_segment(segment_text: str) -> str:
         logger.error(f"Ollama Map Error: {e}")
         return "Error summarizing segment."
 
+def format_timeline(timeline: List[Dict]) -> str:
+    """Converts the session list into a readable text format for the LLM."""
+    lines = []
+    for s in timeline:
+        start = s.get("start_time", "").split("T")[-1][:5] # HH:MM
+        end = s.get("end_time", "").split("T")[-1][:5]
+        app = s.get("app", "Unknown")
+        duration = int(s.get("duration", 0) / 60) # Minutes
+        
+        # Details
+        titles = list(set(s.get("titles", []))) # Unique
+        urls = list(set(s.get("urls", [])))
+        
+        # Truncate lists if too long
+        if len(titles) > 5: titles = titles[:5] + ["..."]
+        if len(urls) > 5: urls = urls[:5] + ["..."]
+        
+        line = f"[{start}-{end}] {app} ({duration}m): {', '.join(titles)}"
+        if urls:
+            line += f"\n  - URLs: {', '.join(urls)}"
+        lines.append(line)
+    return "\n".join(lines)
+
 def process_logs(log_file: Path):
     logger.info(f"Processing {log_file}...")
     
@@ -102,10 +122,16 @@ def process_logs(log_file: Path):
         data = json.load(f)
         
     date_str = data.get("date", str(datetime.date.today()))
-    browser = json.dumps(data.get("browser_history", []), indent=2)
-    windows = json.dumps(data.get("window_activity", []), indent=2)
     
-    full_input = f"Browser:\n{browser}\n\nWindows:\n{windows}"
+    # Handle New Format vs Old Format
+    if "timeline" in data:
+        full_input = format_timeline(data["timeline"])
+    else:
+        # Legacy fallback
+        browser = json.dumps(data.get("browser_history", []), indent=2)
+        windows = json.dumps(data.get("window_activity", []), indent=2)
+        full_input = f"Browser:\n{browser}\n\nWindows:\n{windows}"
+        
     token_count = count_tokens(full_input)
     logger.info(f"Input Token Count: {token_count}")
     
@@ -118,7 +144,7 @@ def process_logs(log_file: Path):
     else:
         # Map-Reduce
         logger.info("Tokens exceed limit. Triggering Map-Reduce...")
-        chunk_size = 6000 # Safety buffer
+        chunk_size = 12000 # Increased chunk size for text format
         chunks = [full_input[i:i+chunk_size] for i in range(0, len(full_input), chunk_size)]
         
         micro_summaries = []
@@ -133,7 +159,7 @@ def process_logs(log_file: Path):
     try:
         response = client.chat(model=cfg.model, format='json', messages=[
             {"role": "system", "content": PROMPT_SYSTEM},
-            {"role": "user", "content": PROMPT_FINAL.format(date=date_str, browser_summary=final_context, window_summary="")}
+            {"role": "user", "content": PROMPT_FINAL.format(date=date_str, timeline_summary=final_context)}
         ])
         
         result_json = json.loads(response['message']['content'])

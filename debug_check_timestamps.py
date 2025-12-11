@@ -28,7 +28,9 @@ def main():
     # Check overlap
     if history and browser_wins:
         h_last = parse_ts(history[0]['timestamp'])
-        w_last = parse_ts(browser_wins[0]['timestamp'])
+        # events (browser_wins) are Oldest -> Newest (due to reverse() in sensor.py)
+        # So the LAST element is the LATEST time.
+        w_last = parse_ts(browser_wins[-1]['timestamp'])
         print(f"\nLatest Hist: {h_last}")
         print(f"Latest Win : {w_last}")
         if h_last and w_last:

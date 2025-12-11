@@ -518,11 +518,10 @@ class GlobalSensor:
         return get_window_activity(hours)
         
     def fuse_streams(self, h, w):
-        # ... logic as defined above ...
-        return fuse_streams_func(h, w)
+        return fuse_streams(h, w)
         
     def sessionize_events(self, t):
-        return sessionize_events_func(t)
+        return sessionize_events(t)
 
 # Redefining logic as standalone functions to match existing style
 def fuse_streams(browser_history: List[Dict], window_activity: List[Dict]) -> List[Dict]:
@@ -584,10 +583,12 @@ def fuse_streams(browser_history: List[Dict], window_activity: List[Dict]) -> Li
                 best_match = None
                 if w_title in title_cache:
                     best_match = title_cache[w_title]
+                    # print("  Exact Match!")
                 else:
                     for h_title, h_item in title_cache.items():
                         if h_title and (h_title in w_title or w_title in h_title):
                             best_match = h_item
+                            # print(f"  Fuzzy Match! {h_title[:30]}...")
                             break 
                 
                 if best_match:
