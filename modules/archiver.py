@@ -72,6 +72,10 @@ def create_weekly_summary():
             if not date_str:
                 continue
             
+            # YAML loader might auto-parse ISO dates into datetime.date objects
+            if isinstance(date_str, (datetime.date, datetime.datetime)):
+                date_str = date_str.strftime("%Y-%m-%d")
+
             dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
             week_key = dt.strftime("%Y-W%W") # e.g., 2024-W45
             

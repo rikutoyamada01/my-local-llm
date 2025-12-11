@@ -16,6 +16,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./config:/app/config
+      - ./modules:/app/modules
       # Mount existing Obsidian Vault (Replace with your actual path in .env or hardcode here for testing)
       # For now, we use a dummy path or a variable. We'll use the one from secrets via environment if possible, 
       # but docker-compose bind mounts must be explicit.

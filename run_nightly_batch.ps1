@@ -1,6 +1,10 @@
 # run_nightly_batch.ps1
 # Nightly Orchestrator for Digital Twin
 
+param (
+    [switch]$NoSleep = $false
+)
+
 $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 $ProjectRoot = $ScriptDir
@@ -34,6 +38,34 @@ Start-Transcript -Path $LogFile -Append
 
 try {
     Write-Log "=== Starting Nightly Batch ==="
+    Write-Log "Options: NoSleep=$NoSleep"
+
+    # 0. Ensure Docker is Running
+    $DockerProcess = Get-Process "Docker Desktop" -ErrorAction SilentlyContinue
+    if (-not $DockerProcess) {
+        Write-Log "Docker Desktop is not running. Starting it..."
+        $DockerPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+        if (Test-Path $DockerPath) {
+            Start-Process -FilePath $DockerPath
+            Write-Log "Waiting for Docker to initialize (this may take a few minutes)..."
+            
+            # Wait loop (up to 5 minutes)
+            for ($i = 0; $i -lt 30; $i++) {
+                Start-Sleep -Seconds 10
+                docker info > $null 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Log "Docker is ready!"
+                    break
+                }
+                Write-Host "." -NoNewline
+            }
+            if ($LASTEXITCODE -ne 0) { throw "Docker failed to start within timeout." }
+        } else {
+            throw "Docker Desktop not found at $DockerPath. Please start it manually."
+        }
+    } else {
+        Write-Log "Docker is running."
+    }
 
     # 1. Perception Phase (Host)
     Write-Log "Step 1: Running Sensor (Host)..."
@@ -64,6 +96,19 @@ try {
     }
 
     Write-Log "=== Batch Completed Successfully ==="
+    
+    # 5. Sleep Logic
+    if (-not $NoSleep) {
+        Write-Log "Going to Sleep in 10 seconds..."
+        Start-Sleep -Seconds 10
+        # Suspend (Sleep)
+        # Note: This requires hibernation to be disabled for S3 sleep, or it might hibernate.
+        # Arguments: Hibernate (0=Sleep), Force (1), WakeupEventsDisabled (0)
+        [Console]::Beep(440, 200) # Beep to notify
+        rundll32.exe powrprof.dll,SetSuspendState 0,1,0
+    } else {
+        Write-Log "Sleep skipped (-NoSleep flag active)."
+    }
 
 } catch {
     Write-Log "FATAL ERROR: $_"

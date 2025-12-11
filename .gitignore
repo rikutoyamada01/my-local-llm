@@ -8,11 +8,12 @@ venv/
 config/secrets.yaml
 
 # Data & Logs (Privacy)
-data/logs/
+# data/logs/
 data/journals/
-data/chroma/
-data/models/
+# data/chroma/
+# data/models/
 *.log
+logs/
 
 # Binaries & Downloads
 bin/

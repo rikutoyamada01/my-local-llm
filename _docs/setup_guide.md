@@ -178,11 +178,21 @@ If the automated script fails, configure these steps manually to ensure the Digi
    - **Settings**: Check "Run task as soon as possible after a scheduled start is missed".
 
 ### 6.2 Nightly Batch (The Brain)
-To generate daily summaries automatically:
+To generate daily summaries automatically and manage power:
+
 1. **Create Basic Task**:
    - **Name**: `DigitalTwinNightlyBatch`
-   - **Trigger**: Daily at 02:00 AM (or your preferred time).
+   - **Trigger**: Daily at 02:00 AM (recommended time when you are asleep).
    - **Action**: "Start a program"
      - **Program/script**: `powershell.exe`
      - **Add arguments**: `-ExecutionPolicy Bypass -File "C:\...\my-local-llm\run_nightly_batch.ps1"`
-     - **Start in**: `C:\...\my-local-llm\` (IMPORTANT: Must match the script's folder)
+     - **Start in**: `C:\...\my-local-llm\`
+2. **Configure Wake-Up & Sleep**:
+   - Right-click the task -> **Properties**.
+   - **Conditions** Tab:
+     - [x] **Wake the computer to run this task** (CRITICAL).
+   - **Settings** Tab:
+     - [x] Run task as soon as possible after a scheduled start is missed.
+
+**Note**: The script is now configured to **automatically start Docker Desktop** if it is not running, and **put the PC to sleep** after the job finishes.
+- To test *without* sleeping, verify via terminal: `.\run_nightly_batch.ps1 -NoSleep`
