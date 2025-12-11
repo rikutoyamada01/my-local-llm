@@ -1,0 +1,34 @@
+# Dockerfile.core
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Common Python Dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install specific Core dependencies
+RUN pip install --no-cache-dir \
+    chromadb==0.4.24 \
+    langchain==0.1.0 \
+    langchain-community==0.0.10 \
+    ollama==0.1.6 \
+    tiktoken==0.5.2 \
+    jinja2==3.1.3
+
+# Create necessary directories
+RUN mkdir -p /app/data /app/config /obsidian_vault
+
+# Copy source code
+COPY modules/ /app/modules/
+COPY config/ /app/config/
+
+# Default command (overridden by docker-compose)
+CMD ["python", "modules/cognizer.py"]

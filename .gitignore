@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Configuration (Secrets)
+config/secrets.yaml
+
+# Data & Logs (Privacy)
+data/logs/
+data/journals/
+data/chroma/
+data/models/
+*.log
+
+# Binaries & Downloads
+bin/
+
+# Training Outputs
+outputs/
+wandb/
+
+# Docker
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db

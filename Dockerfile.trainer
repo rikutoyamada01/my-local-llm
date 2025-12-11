@@ -1,0 +1,20 @@
+# Dockerfile.trainer
+# Use Unsloth's pre-built image for best compatibility
+FROM unslothai/unsloth-cu121:latest
+
+WORKDIR /app
+
+# Install additional training dependencies if needed
+# (Unsloth image comes with most ML libs pre-installed)
+RUN pip install --no-cache-dir \
+    wandb \
+    scipy
+
+# Create directories
+RUN mkdir -p /app/data /app/config
+
+# Copy source code
+COPY modules/ /app/modules/
+
+# Entry point
+CMD ["python", "modules/trainer.py"]

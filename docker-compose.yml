@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  chromadb:
+    image: chromadb/chroma:0.4.24
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/chroma:/chroma/chroma
+    restart: unless-stopped
+
+  core:
+    build: 
+      context: .
+      dockerfile: Dockerfile.core
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      # Mount existing Obsidian Vault (Replace with your actual path in .env or hardcode here for testing)
+      # For now, we use a dummy path or a variable. We'll use the one from secrets via environment if possible, 
+      # but docker-compose bind mounts must be explicit.
+      # User must update this line or use an .env file.
+      - ${OBSIDIAN_VAULT_PATH:-./data/dummy_vault}:/obsidian_vault
+    environment:
+      - OBSIDIAN_MOUNT_PATH=/obsidian_vault
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - CHROMA_HOST=http://chromadb:8000
+    depends_on:
+      - chromadb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.trainer
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    command: python modules/trainer.py
+    profiles:
+      - training # Only run when explicitly requested (docker compose up trainer)
+
+volumes:
+  chroma-data:
