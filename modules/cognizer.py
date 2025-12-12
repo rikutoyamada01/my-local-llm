@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import datetime
 import glob
@@ -40,18 +41,33 @@ client = ollama.Client(host=cfg.host)
 
 # --- Prompts ---
 PROMPT_SYSTEM = """
-You are a highly intelligent Digital Twin assistant. 
-Your goal is to summarize the user's daily activity into a coherent First-Person Narrative.
-You must also extract structured facts for a vector database.
+You are a highly intelligent Digital Twin assistant.
+Your goal is to summarize the user's daily activity into a Structured Daily Journal.
+Use **First-Person** voice ("I...") for all qualitative sections.
+Use **[[Wikilinks]]** for important entities, project names, and key concepts (e.g., [[Python]], [[Digital Twin]]).
+
+IMPORTANT: Even for short or sparse logs, you MUST generate a summary. Do not return empty fields.
 
 Output Format:
-You must provide the response in valid JSON format with two keys:
-1. "narrative": A standard markdown string (3-5 paragraphs) describing the day in first person ("I did...").
-2. "facts": A list of short, independent strings representing key facts/topics (e.g., "Worked on Project X", "Fixed bug in API").
+You must provide the response in valid JSON format with the following keys:
+1. "summary": A short paragraph (2-3 sentences) summarizing the day in First-Person.
+2. "activities": A nested object with keys "morning", "afternoon", "evening". Each contains a list of strings (activities) in First-Person.
+3. "learnings": A list of insights or new knowledge (strings) in First-Person.
+4. "productivity_score": An integer (1-10) based on the volume and complexity of work.
+5. "main_focus": A short string describing the primary focus (e.g., "Coding", "Research").
+6. "facts": A list of short, independent strings representing key facts/topics for a Vector DB.
 
 Example:
 {
-  "narrative": "Today I focused on...",
+  "summary": "Today I focused heavily on...",
+  "activities": {
+    "morning": ["Refactored the [[API]] module", "Reviewed PRs"],
+    "afternoon": ["Debugged the [[Login]] flow"],
+    "evening": ["Read about [[Graph Databases]]"]
+  },
+  "learnings": ["I learned that...", "The [[Orchestrator]] pattern is useful for..."],
+  "productivity_score": 8,
+  "main_focus": "Backend Dev",
   "facts": ["Impl: Auth Module", "Fixed: Login Bug"]
 }
 """
@@ -67,7 +83,7 @@ Here are the activity logs for {date}.
 Activity Timeline:
 {timeline_summary}
 
-Synthesize these into a meaningful Daily Journal.
+Synthesize these into the Structured Daily Journal JSON format.
 """
 
 # --- Logic ---
@@ -111,9 +127,9 @@ def format_timeline(timeline: List[Dict]) -> str:
         
         line = f"[{start}-{end}] {app} ({duration}m): {', '.join(titles)}"
         if urls:
-            line += f"\n  - URLs: {', '.join(urls)}"
+            line += f"\\n  - URLs: {', '.join(urls)}"
         lines.append(line)
-    return "\n".join(lines)
+    return "\\n".join(lines)
 
 def process_logs(log_file: Path):
     logger.info(f"Processing {log_file}...")
@@ -130,7 +146,7 @@ def process_logs(log_file: Path):
         # Legacy fallback
         browser = json.dumps(data.get("browser_history", []), indent=2)
         windows = json.dumps(data.get("window_activity", []), indent=2)
-        full_input = f"Browser:\n{browser}\n\nWindows:\n{windows}"
+        full_input = f"Browser:\\n{browser}\\n\\nWindows:\\n{windows}"
         
     token_count = count_tokens(full_input)
     logger.info(f"Input Token Count: {token_count}")
@@ -153,7 +169,7 @@ def process_logs(log_file: Path):
             summary = summarize_segment(chunk)
             micro_summaries.append(summary)
             
-        final_context = "\n".join(micro_summaries)
+        final_context = "\\n".join(micro_summaries)
         
     # --- Reduce / Generate Final ---
     try:
@@ -162,7 +178,10 @@ def process_logs(log_file: Path):
             {"role": "user", "content": PROMPT_FINAL.format(date=date_str, timeline_summary=final_context)}
         ])
         
-        result_json = json.loads(response['message']['content'])
+        content = response['message']['content']
+        logger.info(f"Ollama Raw Response: {content[:500]}...") # Log first 500 chars
+
+        result_json = json.loads(content)
         
         # Save Outputs
         save_journal(date_str, result_json)
@@ -180,13 +199,49 @@ def save_journal(date_str: str, data: Dict):
     safe_date = date_str.split("T")[0]
     md_path = JOURNALS_DIR / f"{safe_date}_daily.md"
     
+    # Extract Data
+    summary = data.get('summary', 'No summary generated.')
+    activities = data.get('activities', {})
+    learnings = data.get('learnings', [])
+    prod_score = data.get('productivity_score', 5)
+    main_focus = data.get('main_focus', 'General')
+    facts = data.get('facts', [])
+    
+    morning = activities.get('morning', [])
+    afternoon = activities.get('afternoon', [])
+    evening = activities.get('evening', [])
+    
+    # Helper to format lists
+    def fmt_list(items):
+        return "\n".join([f"- {item}" for item in items]) if items else "- No major activities recorded."
+
     frontmatter = f"""---
 date: {safe_date}
 tags: [daily, digital_twin]
-facts: {json.dumps(data.get('facts', []))}
+productivity_score: {prod_score}
+main_focus: {main_focus}
+facts: {json.dumps(facts)}
 ---
 """
-    content = f"{frontmatter}\n# Daily Log: {safe_date}\n\n{data.get('narrative', '')}"
+    content = f"""{frontmatter}
+# Daily Log: {safe_date}
+
+> [!SUMMARY] Daily Summary
+> {summary}
+
+## Activity Log
+### Morning
+{fmt_list(morning)}
+
+### Afternoon
+{fmt_list(afternoon)}
+
+### Evening
+{fmt_list(evening)}
+
+> [!NOTE] Learnings & Insights
+{fmt_list(learnings)}
+"""
     
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(content)
@@ -194,6 +249,17 @@ facts: {json.dumps(data.get('facts', []))}
 
 def main():
     logger.info("Cognizer started.")
+    
+    # Process specific file from args
+    if len(sys.argv) > 1:
+        log_path = Path(sys.argv[1])
+        if log_path.exists():
+            process_logs(log_path)
+            return
+        else:
+            logger.error(f"File not found: {log_path}")
+            return
+
     # Find unprocessed logs
     logs = glob.glob(str(LOGS_DIR / "sensor_log_*.json"))
     

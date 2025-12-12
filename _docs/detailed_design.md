@@ -50,8 +50,17 @@ The system queries the `aw-server` API (`localhost:5600`) to retrieve "Canonical
 - **Token Counting**: Calculate tokens of input logs.
 - **Map-Reduce Strategy**: Split and summarize chunks if input > context limit.
 
-#### B. Structured Output
-Generates Markdown (Narrative) and JSON (Semantic Facts).
+#### B. Structured Output (First-Person Journal)
+- **Voice**: First-Person ("I...").
+- **Format**: Structured Markdown with Obsidian enhancements.
+    -   **Sections**: Summary, Activity Log (Time-Blocked: Morning/Afternoon/Evening), Learnings.
+    -   **Obsidian Features**: 
+        -   **Frontmatter**: `productivity_score`, `main_focus`, `tags` (hardcoded + future dynamic).
+        -   **Visuals**: Callouts (`[!SUMMARY]`, `[!NOTE]`).
+        -   **Linking**: Automatic `[[Wikilinks]]` for key entities.
+- **Output Files**: 
+    -   `YYYY-MM-DD_daily.md` (Journal)
+    -   `YYYY-MM-DD_daily.json` (Structured Data for future use)
 
 ---
 
