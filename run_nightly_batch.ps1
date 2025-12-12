@@ -52,7 +52,8 @@ try {
             # Wait loop (up to 5 minutes)
             for ($i = 0; $i -lt 30; $i++) {
                 Start-Sleep -Seconds 10
-                docker info > $null 2>&1
+                # Use cmd /c to avoid PowerShell's ErrorActionPreference triggering on stderr warnings
+                cmd /c "docker info > NUL 2>&1"
                 if ($LASTEXITCODE -eq 0) {
                     Write-Log "Docker is ready!"
                     break

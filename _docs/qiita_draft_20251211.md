@@ -170,18 +170,50 @@ rundll32.exe powrprof.dll,SetSuspendState 0,1,0
 
 ---
 
-## 今後の拡張予定
+## 🎓 Deep Dive 5: "自分" を学習させる (Persona Training)
 
-現状は「行動ログ → 要約 → 検索」という基本機能のみですが、
-いくつか追加予定の機能があります。
+最後に、蓄積された日記データを使って、**自分の口調や思考パターンを模倣するLLM** を育てます。
+これが「デジタルツイン」の核心部分です。
 
-* **Unsloth を使った個別チューニング**
-  Obsidianに蓄積した文章を学習データとして、軽量なローカルモデルを微調整予定。
+### 実装: Unslothによる高効率ファインチューニング
+`Unsloth` ライブラリを使用し、ローカルGPU（RTX 3060等）で高速にLoRA学習を行います。
 
-* **WSL2を用いた学習パイプライン**
-  GPUアクセラレーション環境をWSL2に組み込み、モデル更新をローカルで回す。
+```python
+# modules/trainer.py (日曜日に実行)
+def prepare_dataset(self):
+    # 最新の7日分 + ランダムな過去ログ(Replay Buffer)を混ぜる
+    # 目的: "直近の記憶" を強化しつつ、"過去の記憶" も忘れないようにする
+    return recent_files + random_sample(old_files, 0.2)
 
-これらを追加することで、より“デジタルツインとしての役割”に近づけていく予定です。
+trainer = SFTTrainer(
+    model=model,
+    args=TrainingArguments(
+        per_device_train_batch_size=2,
+        max_steps=60, # 毎週少しずつ学習する
+    )
+)
+```
+
+この学習プロセスは、`run_nightly_batch.ps1` によって **毎週日曜日** にのみ発動するようにスケジュールされています。
+月〜土はログを貯め、日曜にまとめて「先週の経験」を脳に焼き付けるイメージです。
+
+---
+
+## まとめと今後の展望
+
+こうして集まった「第2の脳」は、Obsidian上で毎日成長し続けています。
+単なるログ収集ツールではなく、自律的に学習し、成長するシステムとして機能し始めました。
+
+### 今後の課題：WSL2ネイティブ化による "Sync-then-Train"
+現在はDocker経由でWindowsのファイルを直接読み込んでいますが、NTFSとLinux(Docker)間のファイルアクセス(I/O)は、学習のような大量の読み書きが発生する処理ではボトルネックになります。
+
+そこで、**「Sync-then-Train」** アーキテクチャへの移行を進めています。
+
+1.  **Sync**: 必要なデータをWindowsからWSL2（Native Linux領域）へコピー。
+2.  **Train**: Linuxネイティブの高速なファイルシステム上でUnslothを回す。
+3.  **Sync Back**: 出来上がったモデルだけをWindowsに戻す。
+
+これにより、ファイルI/Oのオーバーヘッドをほぼゼロにし、GPUの性能を限界まで引き出すことが可能になります。
 
 ---
 
