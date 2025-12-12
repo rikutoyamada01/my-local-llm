@@ -44,9 +44,12 @@ PROMPT_SYSTEM = """
 You are a highly intelligent Digital Twin assistant.
 Your goal is to summarize the user's daily activity into a Structured Daily Journal.
 Use **First-Person** voice ("I...") for all qualitative sections.
-Use **[[Wikilinks]]** for important entities, project names, and key concepts (e.g., [[Python]], [[Digital Twin]]).
 
 IMPORTANT: Even for short or sparse logs, you MUST generate a summary. Do not return empty fields.
+**CRITICAL**: Be specific. Do not just say "I worked on code" or "Processed files".
+If the log shows file usage (e.g., window titles like `cognizer.py`, `README.md`), you MUST explicitly say "I edited `cognizer.py`" or "I updated `README.md`".
+Identify the **project name** from the window titles (e.g., "Antigravity", "my-local-llm") and mention it.
+**Include specific filenames, URLs, project names, and error messages** where visible in the logs.
 
 Output Format:
 You must provide the response in valid JSON format with the following keys:
@@ -61,11 +64,11 @@ Example:
 {
   "summary": "Today I focused heavily on...",
   "activities": {
-    "morning": ["Refactored the [[API]] module", "Reviewed PRs"],
-    "afternoon": ["Debugged the [[Login]] flow"],
-    "evening": ["Read about [[Graph Databases]]"]
+    "morning": ["Refactored the API module", "Reviewed PRs"],
+    "afternoon": ["Debugged the Login flow"],
+    "evening": ["Read about Graph Databases"]
   },
-  "learnings": ["I learned that...", "The [[Orchestrator]] pattern is useful for..."],
+  "learnings": ["I learned that...", "The Orchestrator pattern is useful for..."],
   "productivity_score": 8,
   "main_focus": "Backend Dev",
   "facts": ["Impl: Auth Module", "Fixed: Login Bug"]
@@ -84,6 +87,8 @@ Activity Timeline:
 {timeline_summary}
 
 Synthesize these into the Structured Daily Journal JSON format.
+Focus on **specific details**: what files were touched? what specific topics were researched?
+Avoid generic phrases like "various components" or "general research".
 """
 
 # --- Logic ---
@@ -121,9 +126,9 @@ def format_timeline(timeline: List[Dict]) -> str:
         titles = list(set(s.get("titles", []))) # Unique
         urls = list(set(s.get("urls", [])))
         
-        # Truncate lists if too long
-        if len(titles) > 5: titles = titles[:5] + ["..."]
-        if len(urls) > 5: urls = urls[:5] + ["..."]
+        # Truncate lists if too long (Increased limit to capture more detail)
+        if len(titles) > 10: titles = titles[:10] + ["..."]
+        if len(urls) > 10: urls = urls[:10] + ["..."]
         
         line = f"[{start}-{end}] {app} ({duration}m): {', '.join(titles)}"
         if urls:
@@ -179,9 +184,10 @@ def process_logs(log_file: Path):
         ])
         
         content = response['message']['content']
-        logger.info(f"Ollama Raw Response: {content[:500]}...") # Log first 500 chars
+        # logger.info(f"Ollama Raw Response: {content[:500]}...") # Log first 500 chars
 
         result_json = json.loads(content)
+        logger.info(f"JSON Keys Received: {list(result_json.keys())}") # DIAGNOSTIC LOG
         
         # Save Outputs
         save_journal(date_str, result_json)
