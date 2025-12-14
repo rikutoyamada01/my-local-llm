@@ -17,6 +17,34 @@ function Write-Log {
     Write-Host $LogEntry
 }
 
+# --- Power Management (Prevent Sleep) ---
+$signature = @"
+[DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+public static extern int SetThreadExecutionState(int esFlags);
+"@
+
+$ES_CONTINUOUS = [int]0x80000000
+$ES_SYSTEM_REQUIRED = [int]0x00000001
+# $ES_DISPLAY_REQUIRED = [int]0x00000002 # Uncomment if display is needed
+
+try {
+    $power = Add-Type -MemberDefinition $signature -Name "Win32Power" -Namespace Win32Functions -PassThru
+} catch {
+    # If type is already added (e.g. in same session), ignore error
+    $power = [Win32Functions.Win32Power]
+}
+
+function Prevent-Sleep {
+    Write-Log "Power: preventing system sleep..."
+    $power::SetThreadExecutionState($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED) | Out-Null
+}
+
+function Allow-Sleep {
+    Write-Log "Power: allowing system sleep..."
+    $power::SetThreadExecutionState($ES_CONTINUOUS) | Out-Null
+}
+
+
 # --- Configuration Parsing ---
 # Read secrets.yaml to get the Host Vault Path
 $SecretsPath = "$ProjectRoot\config\secrets.yaml"
@@ -37,6 +65,8 @@ if (Test-Path $SecretsPath) {
 Start-Transcript -Path $LogFile -Append
 
 try {
+    Prevent-Sleep
+
     Write-Log "=== Starting Nightly Batch ==="
     Write-Log "Options: NoSleep=$NoSleep"
 
@@ -101,6 +131,7 @@ try {
     # 5. Sleep Logic
     if (-not $NoSleep) {
         Write-Log "Going to Sleep in 10 seconds..."
+        Allow-Sleep # Reset state before suspending
         Start-Sleep -Seconds 10
         # Suspend (Sleep)
         # Note: This requires hibernation to be disabled for S3 sleep, or it might hibernate.
@@ -115,5 +146,6 @@ try {
     Write-Log "FATAL ERROR: $_"
     exit 1
 } finally {
+    Allow-Sleep
     Stop-Transcript
 }

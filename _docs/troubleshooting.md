@@ -58,5 +58,23 @@ It is **not** a permission error in this specific context.
 1.  **Enable Wake Timers**:
     - `Control Panel` > `Power Options` > `Change plan settings` > `Change advanced power settings`.
     - **Sleep** > **Allow wake timers** -> **Enable**.
-2.  **Elevate Task Privileges**:
+3.  **Elevate Task Privileges**:
     - In Task Scheduler properties, check **"Run with highest privileges"**.
+
+---
+
+## 4. Task Scheduler: Task Starts but Terminates Unexpectedly (System Sleep)
+
+### Symptom
+- The task starts at the scheduled time (e.g., 3:00 AM) but stops midway.
+- Logs show a massive time gap (e.g., Step 1 starts at 3:00, Step 2 at 11:00).
+- Windows Event Log might show "Task Scheduler terminated the task due to timeout" or simply system sleep events.
+
+### Cause
+- The default "Power Saving" or "Balanced" plan puts the PC to sleep if there is no user interaction (mouse/keyboard), even if a script is running CPU-intensive tasks.
+- `powershell.exe` does not automatically prevent sleep.
+
+### Solution
+- **Prevent Sleep Programmatically**:
+    - The script (`run_nightly_batch.ps1`) must explicitly call the Windows API `SetThreadExecutionState` with `ES_SYSTEM_REQUIRED` to keep the system awake.
+    - This has been implemented in the `Prevent-Sleep` function within the main orchestrator script.

@@ -33,6 +33,13 @@ The system queries the `aw-server` API (`localhost:5600`) to retrieve "Canonical
 - **Mechanism**: Regex-based text processing.
 - **Rules**: PII stripping and Domain Blacklist.
 
+#### D. Intelligent Log Compression
+- **Objective**: Reduce log fragmentation caused by frequent context switching (Alt-Tab).
+- **Algorithm**:
+    1.  **Noise Filtering**: Drop sessions shorter than 2 seconds.
+    2.  **Interruption Merging (A-B-A)**: If user switches `App A` -> `App B` -> `App A` and `App B` duration is < 60s, merge into a single `App A` session.
+- **Result**: Reduces thousands of raw events into < 100 meaningful work blocks.
+
 ---
 
 ## Chapter 2: Cognition Layer (Daily Summaries)

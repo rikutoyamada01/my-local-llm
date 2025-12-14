@@ -667,6 +667,86 @@ def sessionize_events(timeline: List[Dict], gap_threshold: int = 300) -> List[Di
         
     return sessions
 
+def compress_sessions(sessions: List[Dict], interruption_threshold: int = 60, noise_threshold: int = 2) -> List[Dict]:
+    """
+    [Optimization]
+    Further compresses sessions by:
+    1. Filtering short 'noise' sessions (< noise_threshold seconds)
+    2. Merging A-B-A patterns (Interruption Merging) where B < interruption_threshold seconds.
+    """
+    if not sessions: return []
+
+    # Pass 1: Filter Noise
+    # Be careful: if we remove too much we might lose context. 
+    # Only remove if it's very short and "not meaningful"? for now just duration.
+    cleaned = [s for s in sessions if s["duration"] >= noise_threshold]
+    
+    # If everything was noise, return empty or keep original?
+    # Let's keep at least something if it's all empty? No, noise is noise.
+    if not cleaned and sessions: 
+        # Fallback: if we aggressively removed everything, maybe just keep original
+        pass 
+
+    sessions = cleaned
+    if not sessions: return []
+
+    # Pass 2: Merge A-B-A
+    # Traverse and build a new list.
+    # Since merging might cascade (A-B-A-B-A -> A), we might need a while loop or multi-pass.
+    # Single pass A-B-A merge:
+    
+    merged_sessions = []
+    
+    i = 0
+    while i < len(sessions):
+        current = sessions[i]
+        
+        # Look ahead for A-B-A pattern
+        # We need at least 3 items: i, i+1, i+2
+        if i + 2 < len(sessions):
+            next_s = sessions[i+1]
+            next_next_s = sessions[i+2]
+            
+            # Check pattern: App A -> App B -> App A
+            if (current["app"] == next_next_s["app"] and 
+                next_s["duration"] < interruption_threshold):
+                
+                # Merge current + next + next_next
+                # "current" becomes the master.
+                
+                # Update End Time
+                current["end_time"] = next_next_s["end_time"]
+                
+                # Update Duration (include the gap/interruption duration? Yes, distinct from active duration)
+                # Actually, simple sum of durations?
+                # Total span = (End of A2 - Start of A1). 
+                # Active duration = A1.dur + B.dur + A2.dur
+                current["duration"] += next_s["duration"] + next_next_s["duration"]
+                
+                # Merge Titles & URLs
+                for t in next_s["titles"] + next_next_s["titles"]:
+                    if t not in current["titles"]: current["titles"].append(t)
+                    
+                for u in next_s["urls"] + next_next_s["urls"]:
+                    if u not in current["urls"]: current["urls"].append(u)
+                    
+                current["event_count"] += next_s["event_count"] + next_next_s["event_count"]
+                
+                # Note: We consume i+1 and i+2. 
+                # But wait, what if we have A-B-A-B-A?
+                # After merging, we are at 'new A'. We should re-evaluate starting from this 'new A' 
+                # because it might be followed by another B-A.
+                # So we do NOT advance i yet, instead we update sessions[i] and remove i+1, i+2
+                sessions[i] = current
+                sessions.pop(i+1)
+                sessions.pop(i+1) # Original i+2 is now i+1
+                continue # Retry checks on the new merged session
+                
+        merged_sessions.append(current)
+        i += 1
+        
+    return merged_sessions
+
 def main(hours=24, dry_run=False):
     print(f"--- Starting Sensor (Last {hours} hours) ---")
     
@@ -683,6 +763,10 @@ def main(hours=24, dry_run=False):
     
     print("Sessionizing events...")
     sessions = sessionize_events(fused)
+    print(f"Initial Sessions: {len(sessions)}")
+    
+    print("Compressing timeline (A-B-A merge & Noise filter)...")
+    sessions = compress_sessions(sessions)
     print(f"Compressed into {len(sessions)} high-level sessions.")
     
     # 3. Save
