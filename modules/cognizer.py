@@ -51,11 +51,19 @@ If the log shows file usage (e.g., window titles like `cognizer.py`, `README.md`
 Identify the **project name** from the window titles (e.g., "Antigravity", "my-local-llm") and mention it.
 **Include specific filenames, URLs, project names, and error messages** where visible in the logs.
 
+**GUIDELINES FOR 'LEARNINGS'**:
+- **AVOID** generic software engineering platitudes (e.g., "I learned that testing is important", "Optimization is key"). These are low value.
+- **FOCUS** on specific topics found in window titles or URLs.
+- *Example*: Instead of "I learned about Python error handling", say "I investigated `ValueError` in `json.load` and learned how to handle malformed UTF-8."
+- *Example*: Instead of "I researched databases", say "I researched `PostgreSQL` indexing specifically for `JSONB` columns using the official docs."
+- Infer the "Why": If multiple window titles show "Error 500" followed by "overflow.com/questions/...", assume I was debugging that specific error.
+- If no deep insight is visible, straightforwardly state the specific technical topics researched.
+
 Output Format:
 You must provide the response in valid JSON format with the following keys:
 1. "summary": A short paragraph (2-3 sentences) summarizing the day in First-Person.
 2. "activities": A nested object with keys "morning", "afternoon", "evening". Each contains a list of strings (activities) in First-Person.
-3. "learnings": A list of insights or new knowledge (strings) in First-Person.
+3. "learnings": A list of specific technical insights or topics researched (strings) in First-Person.
 4. "productivity_score": An integer (1-10) based on the volume and complexity of work.
 5. "main_focus": A short string describing the primary focus (e.g., "Coding", "Research").
 6. "facts": A list of short, independent strings representing key facts/topics for a Vector DB.
@@ -76,7 +84,9 @@ Example:
 """
 
 PROMPT_MAP_REDUCE = """
-The following logs are a partial segment of my day. Summarize them briefly into bullet points.
+The following logs are a partial segment of my day. Summarize them into detailed bullet points.
+**CRITICAL**: You must PRESERVE specific filenames (e.g., `cognizer.py`), project names, error messages, and URL topics.
+Do not generalize these into "files" or "debugging".
 Logs:
 {logs}
 """
@@ -105,7 +115,7 @@ def summarize_segment(segment_text: str) -> str:
     """Map step: Summarize a chunk of logs."""
     try:
         response = client.chat(model=cfg.model, messages=[
-            {"role": "system", "content": "Summarize these logs into concise bullet points."},
+            {"role": "system", "content": "Summarize these logs into detailed bullet points, strictly preserving filenames, project names, and technical terms."},
             {"role": "user", "content": PROMPT_MAP_REDUCE.format(logs=segment_text)}
         ])
         return response['message']['content']
@@ -127,8 +137,8 @@ def format_timeline(timeline: List[Dict]) -> str:
         urls = list(set(s.get("urls", [])))
         
         # Truncate lists if too long (Increased limit to capture more detail)
-        if len(titles) > 10: titles = titles[:10] + ["..."]
-        if len(urls) > 10: urls = urls[:10] + ["..."]
+        if len(titles) > 30: titles = titles[:30] + ["..."]
+        if len(urls) > 30: urls = urls[:30] + ["..."]
         
         line = f"[{start}-{end}] {app} ({duration}m): {', '.join(titles)}"
         if urls:
