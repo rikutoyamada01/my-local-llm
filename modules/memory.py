@@ -56,9 +56,13 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Error ingesting fact: {e}")
 
-    def query(self, text: str, n_results: int = 5) -> List[Dict]:
+    def query(self, text: str, n_results: int = 5, where: Dict = None) -> List[Dict]:
         """
         Retrieves relevant context with Time-Weighted Re-ranking.
+        Args:
+            text: Query text
+            n_results: Number of results to return
+            where: ChromaDB filter dict (e.g., {"timestamp": {"$lt": 1234567890}})
         """
         if not self.collection:
             return []
@@ -66,7 +70,8 @@ class MemoryManager:
         try:
             results = self.collection.query(
                 query_texts=[text],
-                n_results=n_results * 2 # Fetch more for re-ranking
+                n_results=n_results * 2, # Fetch more for re-ranking
+                where=where
             )
             
             # Flatten results structure

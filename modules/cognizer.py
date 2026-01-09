@@ -12,6 +12,14 @@ import ollama
 import yaml
 import tiktoken
 
+# Import MemoryManager for RAG
+try:
+    from memory import MemoryManager
+except ImportError:
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from memory import MemoryManager
+
 # --- Configuration ---
 # Detect if running in Docker (assumed /app exists) or Local
 if Path("/app").exists():
@@ -69,9 +77,13 @@ logger.info(f"Journals Directory: {JOURNALS_DIR}")
 
 # --- Prompts ---
 PROMPT_SYSTEM = """
-You are a highly intelligent Digital Twin assistant.
-Your goal is to summarize the user's daily activity into a Structured Daily Journal.
-Use **First-Person** voice ("I...") for all qualitative sections.
+You are a personal productivity analyst creating an actionable daily reflection.
+Your goal: Transform raw activity data into insights that drive continuous improvement.
+
+**PHILOSOPHY**: This is not passive logging - it's active self-optimization.
+Focus on: **Impact** (value created), **Energy** (when focus peaked), **Growth** (what improved), **Momentum** (progress toward goals).
+
+Use **First-Person** voice ("I...") for all sections.
 
 IMPORTANT: Even for short or sparse logs, you MUST generate a summary. Do not return empty fields.
 **CRITICAL**: Be specific. Do not just say "I worked on code" or "Processed files".
@@ -79,23 +91,22 @@ If the log shows file usage (e.g., window titles like `cognizer.py`, `README.md`
 Identify the **project name** from the window titles (e.g., "Antigravity", "my-local-llm") and mention it.
 **Include specific filenames, URLs, project names, and error messages** where visible in the logs.
 
-**JSON FORMAT REQUIREMENTS**:
-YOU MUST RETURN VALID JSON WITH EXACTLY THE FOLLOWING STRUCTURE. DO NOT DEVIATE.
-
-1. "summary": STRING - A short paragraph (2-3 sentences) in First-Person.
-2. "activities": OBJECT with THREE REQUIRED KEYS:
-   - "morning": ARRAY OF STRINGS (activities from 6:00-12:00)
-   - "afternoon": ARRAY OF STRINGS (activities from 12:00-18:00)  
-   - "evening": ARRAY OF STRINGS (activities from 18:00-6:00)
-   **CRITICAL**: Each value MUST be an array of strings, even if empty: []
-3. "learnings": ARRAY OF STRINGS (NOT objects/dicts)
-   - Each learning MUST be a single string describing one insight
-   - Example: "I learned that PostgreSQL JSONB indexing improves query performance by 10x"
-   - DO NOT use objects like {"topic": "...", "filesTouched": [...]}
+**JSON FORMAT - EXACTLY THESE KEYS**:
+1. "summary": STRING - First-person impact narrative (2-3 sentences focusing on VALUE created and PROGRESS made)
+2. "activities": OBJECT with THREE keys (morning/afternoon/evening) - Each an ARRAY OF STRINGS with context
+3. "learnings": ARRAY OF STRINGS - Generalizable, conceptual insights (Experience-based).
+   - Format: "Context -> Action/Decision -> Result/Principle"
+   - REQUIRED: Focus on the "Why" and "Root Cause" derived from actual experience.
+   - Example: "Distributed System State: Enforcing strong consistency caused high latency. Switching to eventual consistency significantly improved availability."
+   - AVOID: "Use `chown 1000:1000`." (Too specific. Instead: "Permission Issues: Aligning container UID with host fixed volume access errors.")
 4. "productivity_score": INTEGER (1-10)
-5. "main_focus": STRING  
-6. "facts": ARRAY OF STRINGS
-7. "next_steps": ARRAY OF STRINGS
+5. "main_focus": STRING (primary work area)
+6. "facts": ARRAY OF STRINGS (concrete achievements:
+ files touched, bugs fixed)
+7. "next_steps": ARRAY OF STRINGS (actionable items for tomorrow)
+8. "energy_level": STRING ("high"/"medium"/"low" - overall vitality)
+9. "focus_time": STRING (when deep work happened, e.g., "Morning 9-11AM")
+10. "distractions": ARRAY OF STRINGS (what broke flow - meetings, notifications, etc.)
 
 **TIME PERIOD CLASSIFICATION**:
 - Use timestamps from the timeline to categorize activities
@@ -142,13 +153,14 @@ Use this context to:
 - Example: Instead of "I learned about Python error handling", say "I investigated `ValueError` in `json.load` and learned how to handle malformed UTF-8."
 - Infer the "Why": If multiple window titles show "Error 500" followed by "stackoverflow.com/questions/...", assume I was debugging that specific error.
 
-**CRITICAL REMINDERS**:
-1. ALWAYS return valid JSON
-2. ALWAYS include all 7 required keys
-3. "activities" MUST be an object with "morning", "afternoon", "evening" keys
-4. "learnings" MUST be an array of strings, NOT objects
-5. Use timestamps to intelligently distribute activities across time periods
-6. If no activity for a time period, use empty array: []
+**CRITICAL JSON RULES**:
+1. Return ONLY valid JSON (no markdown, no extra text)
+2. Include ALL 10 required keys
+3. "activities" MUST have "morning", "afternoon", "evening" keys (arrays)
+4. "learnings" MUST be array of strings (NOT objects)
+5. Use timestamps to distribute activities intelligently
+6. Empty time periods use empty array: []
+7. Be SPECIFIC in all fields - include filenames, project names, URLs, error messages
 """
 
 PROMPT_MAP_REDUCE = """
@@ -265,11 +277,39 @@ def process_logs(log_file: Path):
             past_context = get_past_context(date_str)
             logger.info(f"Past Context Length: {len(past_context)}")
         except Exception as e:
-            logger.warning(f"Failed to retrieve past context: {e}. Proceeding without it.")
             past_context = "No past context available due to retrieval error."
         
+        # --- Contextual RAG ---
+        rag_patterns = ""
+        try:
+            # Query RAG using the timeline summary to find relevant past insights
+            # addressing user feedback to avoid noise from simple error matching
+            query_text = final_context[:500] 
+            logger.info("Querying RAG for relevant past insights...")
+            
+            # Calculate timestamp for start of this day to filter only PAST insights
+            current_dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+            current_ts = current_dt.timestamp()
+
+            memory = MemoryManager()
+            past_insights = memory.query(
+                query_text, 
+                n_results=3,
+                where={"timestamp": {"$lt": current_ts}}
+            )
+            
+            if past_insights:
+                rag_patterns = "\n\n**RELEVANT PAST INSIGHTS (CONTEXT)**:\n"
+                for idx, item in enumerate(past_insights, 1):
+                     content = item['content']
+                     date = item['metadata'].get('date', 'Unknown')
+                     rag_patterns += f"{idx}. ({date}) {content}\n"
+                logger.info(f"Found {len(past_insights)} relevant past insights via RAG")
+        except Exception as e:
+            logger.warning(f"RAG context retrieval failed: {e}")
+
         response = client.chat(model=cfg.model, format='json', messages=[
-            {"role": "system", "content": PROMPT_SYSTEM},
+            {"role": "system", "content": PROMPT_SYSTEM + rag_patterns},
             {"role": "user", "content": PROMPT_FINAL.format(date=date_str, timeline_summary=final_context, past_context=past_context)}
         ])
         
@@ -319,6 +359,24 @@ def process_logs(log_file: Path):
         # Save Outputs
         logger.info("Calling save_journal with data keys: " + str(list(result_json.keys())))
         save_journal(date_str, result_json)
+        
+        # Ingest LEARNINGS to ChromaDB for RAG (High-Value Knowledge)
+        try:
+            learnings = result_json.get('learnings', [])
+            if learnings:
+                logger.info(f"Ingesting {len(learnings)} learnings to ChromaDB...")
+                memory = MemoryManager()
+                for insight in learnings:
+                    if isinstance(insight, str):
+                        memory.ingest_fact(insight, date_str, metadata={
+                            "source": "daily_log",
+                            "type": "learning",
+                            "productivity_score": result_json.get('productivity_score', 5),
+                            "main_focus": result_json.get('main_focus', 'General')
+                        })
+                logger.info("Learnings successfully ingested to memory.")
+        except Exception as e:
+            logger.warning(f"Failed to ingest learnings to memory: {e}")
         
         # Mark log as processed (rename)
         new_name = log_file.with_suffix('.json.processed')
@@ -383,6 +441,9 @@ def save_journal(date_str: str, data: Dict):
     main_focus = data.get('main_focus', 'General')
     facts = data.get('facts', [])
     next_steps = data.get('next_steps', [])
+    energy_level = data.get('energy_level', 'medium')
+    focus_time = data.get('focus_time', 'Not tracked')
+    distractions = data.get('distractions', [])
     
     # --- Validate and Sanitize Learnings ---
     learnings = []
@@ -529,6 +590,8 @@ date: {safe_date}
 tags: [daily, digital_twin]
 productivity_score: {prod_score}
 main_focus: {main_focus}
+energy_level: {energy_level}
+focus_time: "{focus_time}"
 facts: {json.dumps(facts)}
 ---
 """
@@ -550,6 +613,11 @@ facts: {json.dumps(facts)}
 
 > [!NOTE] Learnings & Insights
 {fmt_list(learnings)}
+
+## 📊 Energy & Focus
+- **Energy Level**: {energy_level}
+- **Peak Focus Time**: {focus_time}
+- **Distractions**: {', '.join(distractions) if distractions else 'None tracked'}
 
 ## Next Steps
 {fmt_list(next_steps)}

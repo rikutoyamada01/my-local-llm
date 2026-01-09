@@ -8,6 +8,15 @@ from typing import List, Dict, Optional
 
 import ollama
 
+# Import MemoryManager for RAG
+try:
+    from memory import MemoryManager
+except ImportError:
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from memory import MemoryManager
+
+
 # --- Configuration ---
 BASE_DIR = Path("/app")
 DATA_DIR = BASE_DIR / "data"
@@ -31,15 +40,53 @@ cfg = ConfigLoader()
 client = ollama.Client(host=cfg.host)
 
 PROMPT_WEEKLY = """
-Here are my daily summaries for the past week ({start_date} to {end_date}).
-Synthesize them into a high-level Weekly Review.
-Highlight:
-1. Key Achievements
-2. Recurring Themes
-3. Areas for Improvement
+You are a personal growth coach analyzing the past week's activities ({start_date} to {end_date}).
+Create a structured weekly review that drives improvement and action.
 
-Summaries:
+**Analysis Framework**:
+1. **Impact**: Which activities created the most value? Why were they important?
+2. **Time Investment**: Where did time actually go? Was it intentional?
+3. **Skill Development**: What was learned? What improved? Provide specific evidence.
+4. **Energy Patterns**: When was focus highest? What environments worked best?
+5. **Bottlenecks**: What slowed progress? How to improve next week?
+
+**Required Output Structure in Japanese**:
+
+## 📊 週次データ
+- 主要活動カテゴリ: [リスト]
+- 最長集中セッション: [時間]
+- 新規トピック数: [数]
+
+## 🎯 今週のハイライト
+[最も重要な成果3つを箇条書き。各項目に「なぜ重要か」を1文で追記]
+
+## 📈 スキル成長トラッカー
+| スキル | 変化 | 証拠/成果物 |
+|--------|------|------------|
+| [スキル名] | [Before→After] | [具体例] |
+
+## 🔄 習慣パターン
+**継続できたこと**:
+- [習慣]: [頻度]
+
+**改善が必要**:
+- [課題]: [原因]
+
+## ⚠️ ボトルネック分析
+- **問題**: [障害]
+- **根本原因**: [Why分析]
+- **改善策**: [具体的アクション]
+
+## 📝 来週のアクションプラン
+1. **最優先**: [タスク]（期待成果: [...]）
+2. **実験**: [新しい試み]（仮説: [...]）
+3. **継続**: [効果があったこと]
+
+Daily Summaries:
 {summaries}
+
+[参考情報：過去の経緯]
+{rag_context}
 """
 
 def get_daily_notes() -> List[Path]:
@@ -98,13 +145,45 @@ def create_weekly_summary():
         
         combined_text = "\n\n".join([f"## {n['date']}\n{n['content']}" for n in notes])
         
+        # RAG: Time-Offset Retrieval
+        # Query for insights explicitly BEFORE this week started
+        rag_context = ""
+        try:
+            # 1. Determine Week Start Timestamp
+            start_date_str = notes[0]['date']
+            start_dt = datetime.datetime.strptime(start_date_str, "%Y-%m-%d")
+            start_ts = start_dt.timestamp()
+            
+            # 2. Extract Keywords (Simple Frequency or Main Focus)
+            # For now, use a generic query related to growth/challenges
+            query_text = f"challenges learned achievements skills"
+            
+            memory = MemoryManager()
+            # 3. Query with Filter: timestamp < start_ts
+            past_insights = memory.query(
+                query_text, 
+                n_results=3, 
+                where={"timestamp": {"$lt": start_ts}}
+            )
+            
+            if past_insights:
+                rag_context = ""
+                for idx, insight in enumerate(past_insights, 1):
+                    date = insight['metadata'].get('date', 'Unknown')
+                    content = insight['content']
+                    rag_context += f"- ({date}): {content}\n"
+                logger.info(f"Found {len(past_insights)} historical insights (before {start_date_str})")
+        except Exception as e:
+            logger.warning(f"Time-Offset RAG failed: {e}")
+        
         try:
             response = client.chat(model=cfg.model, messages=[
                 {"role": "system", "content": "You are a personal assistant creating a weekly executive summary."},
                 {"role": "user", "content": PROMPT_WEEKLY.format(
                     start_date=notes[0]['date'],
                     end_date=notes[-1]['date'],
-                    summaries=combined_text
+                    summaries=combined_text,
+                    rag_context=rag_context
                 )}
             ])
             
