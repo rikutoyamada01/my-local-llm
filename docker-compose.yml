@@ -17,11 +17,8 @@ services:
       - ./data:/app/data
       - ./config:/app/config
       - ./modules:/app/modules
-      # Mount existing Obsidian Vault (Replace with your actual path in .env or hardcode here for testing)
-      # For now, we use a dummy path or a variable. We'll use the one from secrets via environment if possible, 
-      # but docker-compose bind mounts must be explicit.
-      # User must update this line or use an .env file.
-      - ${OBSIDIAN_VAULT_PATH:-./data/dummy_vault}:/obsidian_vault
+      # Mount existing Obsidian Vault
+      - C:/Users/yamadarikuto/Documents/Obsidian/Vault/DailyActivity:/obsidian_vault
     environment:
       - OBSIDIAN_MOUNT_PATH=/obsidian_vault
       - OLLAMA_HOST=http://host.docker.internal:11434
