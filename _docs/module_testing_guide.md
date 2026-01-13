@@ -10,6 +10,7 @@
 | `test_cognizer.ps1` | `cognizer.py` | Docker | ログをジャーナルに変換 |
 | `test_memory.ps1` | `memory.py` | Docker | ChromaDBへの接続テスト |
 | `test_archiver.ps1` | `archiver.py` | Docker | 週次サマリーの生成 |
+| `test_reviewer.ps1` | `reviewer.py` | Docker | 月次・年次レビューの生成 |
 | `test_all.ps1` | 全モジュール | Mixed | すべてのテストを実行 |
 
 ---
@@ -83,6 +84,25 @@
 
 **出力:**
 - 週次サマリーファイル: `data/journals/weekly_YYYY_WXX.md`
+
+---
+
+#### 5. Reviewer (Dockerで実行)
+```powershell
+# 月次・年次レビュー生成
+.\scripts\test\test_reviewer.ps1
+
+# 詳細ログ表示
+.\scripts\test\test_reviewer.ps1 -Verbose
+```
+
+**出力:**
+- 月次レビュー: `YYYY-MM_monthly.md`
+- 年次レビュー: `YYYY_yearly.md`
+
+**トラブルシューティング:**
+- 週次サマリーが少ない場合、月次レビューは生成されません（最低2週分必要）
+- 月次レビューが少ない場合、年次レビューは生成されません（最低3ヶ月分必要）
 
 ---
 

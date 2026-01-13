@@ -40,123 +40,106 @@ class ConfigLoader:
 cfg = ConfigLoader()
 client = ollama.Client(host=cfg.host)
 
+# --- New Configuration for Samples ---
+SAMPLES_DIR = DATA_DIR / "samples"
+
 PROMPT_MONTHLY = """
 Analyze the past month's weekly reviews ({month}: {start_date} to {end_date}).
 Identify growth trajectories, trends, and actionable strategies for next month.
 
 **Analysis Framework**:
-1. **Progress Trajectory**: What changed from week 1 to week 4?
-2. **Skill Mastery**: Which skills showed consistent growth? Where is there room for improvement?
-3. **Consistency Metrics**: Which habits stuck? Which faded? Why?
-4. **ROI Analysis**: Did time investments yield expected results?
-5. **Pivot Points**: Were there important decisions or direction changes?
+1. **Fact-Based Progress**: What was *actually* completed? (Cite specific artifacts/commits)
+2. **Skill Application**: Where were specific skills applied? (e.g., "Used Python for data analysis", NOT "Improved Python skills by 20%")
+3. **Project Distinction**: clearly separate different projects (e.g., "University Assignment" vs "Antigravity"). Do NOT mix them.
+4. **Bottlenecks**: Actual blockers encountered.
 
 **Required Output Structure in Japanese**:
 
 ## 🎯 月次サマリー
-- **テーマ**: [この月を一言で表すと]
-- **成長率**: [月初と月末の変化]
-- **主要成果物**: [具体的なアウトプット]
+- **主要活動**: [事実に基づく活動の要約]
+- **実績**: [完了したタスク/成果物]
 
-## 📊 スキル成長マトリックス
-| スキル | Week1 | Week2 | Week3 | Week4 | 総合評価 |
-|--------|-------|-------|-------|-------|----------|
-| [スキル] | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | 📈 向上中 |
+## 📊 プロジェクト別進捗
+| プロジェクト | 今月の成果 |
+|--------------|------------|
+| [Project A] | [具体的な成果] |
+| [Project B] | [具体的な成果] |
 
-## 🔄 習慣スコアカード
-| 習慣 | 継続日数 | 成功率 | 改善策 |
-|------|----------|--------|--------|
-| [習慣] | X/30日 | XX% | [改善案] |
+**注意**:
+- "Antigravity" と "Raspberry Pi" (e.g., 課題) は別のプロジェクトとして扱うこと。
+- ログに書かれていない目標（例：世界ランク⚪︎位）を捏造しないこと。
+- 「20%向上」のような根拠のない数値を使わないこと。
 
-## 💡 重要な洞察（Top 3）
-1. **[洞察]**: [パターン] → **応用**: [活用法]
+## 💡 技術的・経験的知見 (Top 3)
+1. **[知見]**: [具体的なコンテキスト] -> [学び]
 2. [...]
 3. [...]
 
-## 🚀 来月のストラテジー
-**Focus Areas**:
-1. [領域]: [目標とKPI]
-2. [...]
+## 🚀 来月のフォーカス
+- [ログに基づく次のステップ]
 
-**Experiments**:
-- [試すこと]: [期待する学び]
+## 🚀 来月のフォーカス
+- [ログに基づく次のステップ]
 
-**継続**:
-- [効果的だった取り組み]
+**CORRECT EXAMPLE**:
+{examples}
 
 Weekly Summaries:
 {summaries}
-
 [参考情報：過去の経緯]
 {rag_context}
 """
 
 PROMPT_YEARLY = """
-Create a profound yearly reflection for {year} based on monthly reviews.
-This is a transformation story - capture both data and emotions.
+Create a yearly reflection for {year} based on the actual monthly reviews provided.
+**CRITICAL**: Stick strictly to the FACTS in the summaries. Do NOT invent stories, metrics, or "transformation arcs" that are not supported by data.
 
 **Analysis Framework**:
-1. **Transformation Arc**: How fundamentally different is Dec vs Jan?
-2. **Compound Growth**: Examples of small habits becoming major changes?
-3. **Pivotal Moments**: Life-changing decisions or events?
-4. **Wisdom Gained**: Universal lessons learned from experience?
-5. **Legacy & Impact**: What was created? Who was influenced?
+1. **Key Milestones**: What was actually shipped or completed?
+2. **Skill Acquisition**: What specific technologies/tools were learned?
+3. **Project Portfolio**: Summary of progress on key projects.
 
 **Required Output Structure in Japanese**:
 
-## 📖 Year in Review: {year}の物語
+## 📖 Year in Review: {year}の実績
 
-### Part 1: 変容の軌跡
-**1月の自分 vs 12月の自分**
-| 側面 | 1月 | 12月 | 変化 |
-|------|-----|------|------|
-| スキル | [...] | [...] | +X% |
-| フォーカス | [...] | [...] | [...] |
-
-### Part 2: マイルストーン年表
-- **Q1**: [重要な出来事]
+### Part 1: マイルストーン年表
+[事実に基づく主要イベントのみ]
+- **Q1**: [...]
 - **Q2**: [...]
 - **Q3**: [...]
 - **Q4**: [...]
 
-### Part 3: スキルツリー（年間成長）
-[主要スキル分野ごとに進捗を可視化]
+### Part 2: プロジェクト別成果
+- **[Project Name]**:
+  - [成果物]
+  - [学んだ技術]
 
-### Part 4: 最も誇れる3つのこと
-1. **[成果]**: [なぜ誇れるか] → **学び**: [...]
-2. [...]
-3. [...]
+### Part 3: 技術的成長
+- [習得したスキル]: [具体的な活用例]
 
-### Part 5: 失敗から学んだこと
-| 失敗 | 根本原因 | 教訓 | 来年への活かし方 |
-|------|----------|------|------------------|
-| [...] | [...] | [...] | [...] |
-
-### Part 6: 感謝と内省
-**感謝したい人・出来事**:
-- [...]
-
-**自分を褒めたいこと**:
-- [...]
-
-### Part 7: {year_next}年のビジョン
-**Identity Goal（なりたい自分）**:
-[1年後の理想像]
-
-**Key Results（3つの重要成果）**:
-1. [成果]: [測定可能な指標]
-2. [...]
-3. [...]
-
-**価値観の再確認**:
-[何を大切にして生きるか]
+### Part 4: 来年の展望
+- [ログから読み取れる継続課題]
 
 Monthly Reviews:
 {summaries}
-
 [参考情報：過去の経緯]
 {rag_context}
+
+**CORRECT EXAMPLE**:
+{examples}
 """
+
+def load_examples(type_name: str) -> str:
+    """Load example markdown files to guide the LLM."""
+    example_path = SAMPLES_DIR / f"sample_{type_name}.md"
+    if example_path.exists():
+        try:
+            with open(example_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            logger.warning(f"Failed to load sample {example_path}: {e}")
+    return "(No examples available)"
 
 def parse_frontmatter(content: str) -> Dict:
     """Extract YAML frontmatter from markdown content."""
@@ -277,7 +260,11 @@ def create_monthly_review():
                     start_date=start_date,
                     end_date=end_date,
                     summaries=combined_text,
-                    rag_context=rag_context
+                    start_date=start_date,
+                    end_date=end_date,
+                    summaries=combined_text,
+                    rag_context=rag_context,
+                    examples=load_examples("monthly")
                 )}
             ])
             
@@ -385,8 +372,10 @@ def create_yearly_review():
                 {"role": "user", "content": PROMPT_YEARLY.format(
                     year=year,
                     year_next=year_next,
+                    year_next=year_next,
                     summaries=combined_text,
-                    rag_context=rag_context
+                    rag_context=rag_context,
+                    examples=load_examples("yearly")
                 )}
             ])
             

@@ -59,6 +59,15 @@ if (-not $SkipArchiver) {
     }
 }
 
+# Test Reviewer
+Write-Host "`nTesting Reviewer..." -ForegroundColor Yellow
+try {
+    & "$TestScriptDir\test_reviewer.ps1" -Verbose:$Verbose
+    $Results["Reviewer"] = "[PASS]"
+} catch {
+    $Results["Reviewer"] = "[FAIL] $_"
+}
+
 # Summary
 Write-Host "`n=====================================" -ForegroundColor Magenta
 Write-Host "  Test Results Summary" -ForegroundColor Magenta

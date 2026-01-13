@@ -39,48 +39,47 @@ class ConfigLoader:
 cfg = ConfigLoader()
 client = ollama.Client(host=cfg.host)
 
+# --- New Configuration for Samples ---
+SAMPLES_DIR = DATA_DIR / "samples"
+
 PROMPT_WEEKLY = """
-You are a personal growth coach analyzing the past week's activities ({start_date} to {end_date}).
-Create a structured weekly review that drives improvement and action.
+You are a personal project manager analyzing the past week's logs ({start_date} to {end_date}).
+Create a factual weekly summary. Do NOT invent metrics or mix up projects.
 
 **Analysis Framework**:
-1. **Impact**: Which activities created the most value? Why were they important?
-2. **Time Investment**: Where did time actually go? Was it intentional?
-3. **Skill Development**: What was learned? What improved? Provide specific evidence.
-4. **Energy Patterns**: When was focus highest? What environments worked best?
-5. **Bottlenecks**: What slowed progress? How to improve next week?
+1. **Key Achievements**: What was actually finished? (Cite filenames/commits if possible)
+2. **Project Updates**:
+   - Separate "Antigravity" work from "University/Assignments" (e.g., Raspberry Pi tasks).
+   - List specific progress for each.
+3. **Learnings**: Technical or process definitions learned.
+4. **Blockers**: What went wrong?
 
 **Required Output Structure in Japanese**:
 
 ## 📊 週次データ
-- 主要活動カテゴリ: [リスト]
-- 最長集中セッション: [時間]
-- 新規トピック数: [数]
+- **主要な取り組み**: [リスト]
+- **完了タスク**: [リスト]
 
-## 🎯 今週のハイライト
-[最も重要な成果3つを箇条書き。各項目に「なぜ重要か」を1文で追記]
+## 🛠 プロジェクト別進捗
+### [Project A]
+- [進捗]
+- [課題]
 
-## 📈 スキル成長トラッカー
-| スキル | 変化 | 証拠/成果物 |
-|--------|------|------------|
-| [スキル名] | [Before→After] | [具体例] |
+### [Project B]
+- [進捗]
 
-## 🔄 習慣パターン
-**継続できたこと**:
-- [習慣]: [頻度]
+**注意**:
+- Antigravity(Local LLM) と Raspberry Pi(課題) は混同しないこと。
+- 正確なログのみに基づき、推測で数値を書かないこと。
 
-**改善が必要**:
-- [課題]: [原因]
+## 💡 今週の学び (Learnings)
+- [Context] -> [Knowledge]
 
-## ⚠️ ボトルネック分析
-- **問題**: [障害]
-- **根本原因**: [Why分析]
-- **改善策**: [具体的アクション]
+## 📝 来週のアクション
+- [ログから導かれる次のタスク]
 
-## 📝 来週のアクションプラン
-1. **最優先**: [タスク]（期待成果: [...]）
-2. **実験**: [新しい試み]（仮説: [...]）
-3. **継続**: [効果があったこと]
+**CORRECT EXAMPLE**:
+{examples}
 
 Daily Summaries:
 {summaries}
@@ -88,6 +87,17 @@ Daily Summaries:
 [参考情報：過去の経緯]
 {rag_context}
 """
+
+def load_examples(type_name: str) -> str:
+    """Load example markdown files to guide the LLM."""
+    example_path = SAMPLES_DIR / f"sample_{type_name}.md"
+    if example_path.exists():
+        try:
+            with open(example_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            logger.warning(f"Failed to load sample {example_path}: {e}")
+    return "(No examples available)"
 
 def get_daily_notes() -> List[Path]:
     return sorted(list(JOURNALS_DIR.glob("*_daily.md")))
@@ -183,7 +193,8 @@ def create_weekly_summary():
                     start_date=notes[0]['date'],
                     end_date=notes[-1]['date'],
                     summaries=combined_text,
-                    rag_context=rag_context
+                    rag_context=rag_context,
+                    examples=load_examples("weekly")
                 )}
             ])
             

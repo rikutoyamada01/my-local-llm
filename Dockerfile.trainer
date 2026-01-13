@@ -1,6 +1,5 @@
-# Dockerfile.trainer
-# Use Unsloth's pre-built image for best compatibility
-FROM unslothai/unsloth-cu121:latest
+# Use Unsloth's official image
+FROM unsloth/unsloth:latest
 
 WORKDIR /app
 

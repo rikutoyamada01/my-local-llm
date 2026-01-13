@@ -35,6 +35,7 @@ else:
 DATA_DIR = BASE_DIR / "data"
 LOGS_DIR = DATA_DIR / "logs"
 CONFIG_PATH = BASE_DIR / "config" / "secrets.yaml"
+SAMPLES_DIR = DATA_DIR / "samples"
 
 # Ensure output directories (Logs)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -93,7 +94,7 @@ Identify the **project name** from the window titles (e.g., "Antigravity", "my-l
 
 **JSON FORMAT - EXACTLY THESE KEYS**:
 1. "summary": STRING - First-person impact narrative (2-3 sentences focusing on VALUE created and PROGRESS made)
-2. "activities": OBJECT with THREE keys (morning/afternoon/evening) - Each an ARRAY OF STRINGS with context
+2. "activities": ARRAY OF STRINGS with context.
 3. "learnings": ARRAY OF STRINGS - Generalizable, conceptual insights (Experience-based).
    - Format: "Context -> Action/Decision -> Result/Principle"
    - REQUIRED: Focus on the "Why" and "Root Cause" derived from actual experience.
@@ -108,65 +109,29 @@ Identify the **project name** from the window titles (e.g., "Antigravity", "my-l
 9. "focus_time": STRING (when deep work happened, e.g., "Morning 9-11AM")
 10. "distractions": ARRAY OF STRINGS (what broke flow - meetings, notifications, etc.)
 
-**TIME PERIOD CLASSIFICATION**:
-- Use timestamps from the timeline to categorize activities
-- Morning: 6:00 AM - 12:00 PM
-- Afternoon: 12:00 PM - 6:00 PM
-- Evening: 6:00 PM - 6:00 AM (next day)
-
 **CORRECT EXAMPLE**:
-{
-  "summary": "Today I focused heavily on refactoring the authentication module and researching PostgreSQL optimization techniques.",
-  "activities": {
-    "morning": ["Refactored the API authentication module", "Reviewed GitHub PRs for my-local-llm project"],
-    "afternoon": ["Debugged login flow issues", "Researched PostgreSQL JSONB indexing"],
-    "evening": ["Read documentation about Graph Databases", "Updated project README.md"]
-  },
-  "learnings": [
-    "I learned that PostgreSQL B-tree indexes work efficiently with JSONB columns using GIN indexes",
-    "The Orchestrator pattern helps decouple authentication logic from business logic"
-  ],
-  "productivity_score": 8,
-  "main_focus": "Backend Development",
-  "facts": ["Implemented: Auth Module Refactor", "Fixed: Login Bug in OAuth flow", "Researched: PostgreSQL JSONB optimization"],
-  "next_steps": ["Continue refactoring auth middleware", "Research Redis caching strategies"]
-}
+{examples}
 
 **INCORRECT EXAMPLE (DO NOT DO THIS)**:
 {
-  "activities": [],  // ❌ WRONG - not an object with morning/afternoon/evening
+  "activities": {"morning": []},  // ❌ WRONG - should be a simple list of strings
   "learnings": [
     {"topic": "PostgreSQL", "researched": "indexing"}  // ❌ WRONG - should be a string
   ]
+  "productivity_score": 5,
+  "main_focus": "Development/Research/etc",
+  "next_steps": ["Action item 1", "Action item 2"]
 }
 
-**PAST CONTEXT**:
-You will be provided with summaries from yesterday and/or last week.
-Use this context to:
-- Highlight **progress** made since the last session.
-- Identify **changes** in focus or approach.
-- Deepen the "Learnings" section by connecting new insights to previous knowledge.
-
-**GUIDELINES FOR 'LEARNINGS'**:
-- **AVOID** generic software engineering platitudes (e.g., "I learned that testing is important", "Optimization is key").
-- **FOCUS** on specific topics found in window titles or URLs.
-- Example: Instead of "I learned about Python error handling", say "I investigated `ValueError` in `json.load` and learned how to handle malformed UTF-8."
-- Infer the "Why": If multiple window titles show "Error 500" followed by "stackoverflow.com/questions/...", assume I was debugging that specific error.
-
-**CRITICAL JSON RULES**:
-1. Return ONLY valid JSON (no markdown, no extra text)
-2. Include ALL 10 required keys
-3. "activities" MUST have "morning", "afternoon", "evening" keys (arrays)
-4. "learnings" MUST be array of strings (NOT objects)
-5. Use timestamps to distribute activities intelligently
-6. Empty time periods use empty array: []
-7. Be SPECIFIC in all fields - include filenames, project names, URLs, error messages
+**RULES**:
+1. **activities**: MUST be an ARRAY of STRINGS. Format: "HH:MM - Description". DO NOT use Objects.
+2. **learnings**: Focus on technical details found in logs.
+3. Be specific with filenames and errors.
+4. Output ONLY valid JSON.
 """
 
 PROMPT_MAP_REDUCE = """
-The following logs are a partial segment of my day. Summarize them into detailed bullet points.
-**CRITICAL**: You must PRESERVE specific filenames (e.g., `cognizer.py`), project names, error messages, and URL topics.
-Do not generalize these into "files" or "debugging".
+Summarize these logs into bullet points. Preserve filenames (e.g. `cognizer.py`) and specific URL topics.
 Logs:
 {logs}
 """
@@ -179,10 +144,9 @@ Activity Timeline:
 Past Context:
 {past_context}
 
-Synthesize these into the Structured Daily Journal JSON format.
-Focus on **specific details**: what files were touched? what specific topics were researched?
-Avoid generic phrases like "various components" or "general research".
-Use the "Past Context" to provide better continuity and deeper insights in the "Learnings" section.
+Generate the JSON summary. 
+- Keep descriptions specific (filenames, errors).
+- Activities MUST be strings: "HH:MM - [App] Description".
 """
 
 # --- Logic ---
@@ -229,6 +193,24 @@ def format_timeline(timeline: List[Dict]) -> str:
             line += f"\\n  - URLs: {', '.join(urls)}"
         lines.append(line)
     return "\\n".join(lines)
+
+def load_samples() -> str:
+    """Loads example JSONs from data/samples to guide the LLM."""
+    examples = []
+    if SAMPLES_DIR.exists():
+        for f in SAMPLES_DIR.glob("*.json"):
+            try:
+                with open(f, "r", encoding="utf-8") as file:
+                    # Validation
+                    data = json.load(file)
+                    examples.append(json.dumps(data, indent=2, ensure_ascii=False))
+            except Exception as e:
+                logger.warning(f"Failed to load sample {f}: {e}")
+    
+    if not examples:
+        return "No examples available - please follow the rules strictly."
+        
+    return "\n\n".join(examples)
 
 def process_logs(log_file: Path):
     logger.info(f"Processing {log_file}...")
@@ -308,8 +290,12 @@ def process_logs(log_file: Path):
         except Exception as e:
             logger.warning(f"RAG context retrieval failed: {e}")
 
+        # Load reference examples
+        examples_text = load_samples()
+        system_prompt = PROMPT_SYSTEM.format(examples=examples_text) + rag_patterns
+
         response = client.chat(model=cfg.model, format='json', messages=[
-            {"role": "system", "content": PROMPT_SYSTEM + rag_patterns},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": PROMPT_FINAL.format(date=date_str, timeline_summary=final_context, past_context=past_context)}
         ])
         
@@ -331,23 +317,21 @@ def process_logs(log_file: Path):
         
         # --- Validate structure before saving ---
         if 'activities' in result_json:
-            if isinstance(result_json['activities'], dict):
-                logger.info(f"Activities keys: {list(result_json['activities'].keys())}")
-                # DEBUG: Inspect first activity
-                for k in ['morning', 'afternoon', 'evening']:
-                    act_list = result_json['activities'].get(k, [])
-                    if act_list:
-                        logger.info(f"First activity in {k}: {act_list[0]}")
+            if isinstance(result_json['activities'], list):
+                logger.info(f"Activities count: {len(result_json['activities'])}")
+            elif isinstance(result_json['activities'], dict):
+                # Handle case where LLM still returns a dict (backward compatibility/hallucination)
+                logger.warning("Activities returned as dict, flattening...")
+                flattened = []
+                for k, v in result_json['activities'].items():
+                    if isinstance(v, list):
+                        flattened.extend(v)
+                result_json['activities'] = flattened
             else:
-                logger.warning(f"Activities is NOT a dict: {type(result_json['activities'])}")
+                 logger.warning(f"Activities is NOT a list: {type(result_json['activities'])}")
         elif 'tasks' in result_json:
-            # Fallback: Map 'tasks' to 'activities' (assign to afternoon/general)
-            logger.warning(f"LLM returned 'tasks' instead of 'activities'. Remapping {len(result_json['tasks'])} tasks.")
-            result_json['activities'] = {
-                'morning': [],
-                'afternoon': result_json['tasks'], # Assign tasks list to afternoon
-                'evening': []
-            }
+            # Fallback
+            result_json['activities'] = result_json['tasks']
         else:
              logger.warning("No 'activities' or 'tasks' key found in LLM response.")
         
@@ -433,9 +417,15 @@ def save_journal(date_str: str, data: Dict):
     safe_date = date_str.split("T")[0]
     md_path = JOURNALS_DIR / f"{safe_date}_daily.md"
     
-    # Extract Data
+    # Extract Data (Robust Fallback)
     summary = data.get('summary', 'No summary generated.')
-    activities = data.get('activities', {})
+    
+    # Handle 'tasks' vs 'activities' confusion
+    activities_raw = data.get('activities', {})
+    if not activities_raw and 'tasks' in data:
+        activities_raw = data['tasks']
+        logger.info("Using 'tasks' as activities source.")
+
     learnings_raw = data.get('learnings', [])
     prod_score = data.get('productivity_score', 5)
     main_focus = data.get('main_focus', 'General')
@@ -451,60 +441,36 @@ def save_journal(date_str: str, data: Dict):
         if isinstance(item, str):
             learnings.append(item)
         elif isinstance(item, dict):
-            # Handle malformed dict learnings - extract meaningful text
-            logger.warning(f"Learnings contains dict instead of string: {item}. Attempting to convert.")
-            # Try to construct a readable string from the dict
-            # Schema variations: topic, insight, description
+            # Quietly handle dicts without spamming warnings (common with smaller models)
             topic = item.get('topic', '')
-            insight = item.get('insight', '')
-            desc = item.get('description', '')
+            insight = item.get('insight', '') or item.get('summary') or item.get('description', '')
             
             # Choose the best primary text
-            primary_text = insight or desc or topic or "No detail provided"
+            primary_text = insight or topic or "No detail provided"
             
-            files = item.get('filesTouched', [])
-            researched = item.get('researched', '')
-            related = item.get('related_files', [])
-            
-            all_files = list(set(files + related))
-            
-            # Build a coherent learning string
-            learning_str = primary_text
+            # Format: "**Topic**: Insight"
             if topic and topic != primary_text:
-                learning_str = f"[{topic}] {learning_str}"
-                
-            if all_files:
-                learning_str += f" (Files: {', '.join(all_files)})"
-            if researched:
-                learning_str += f" - Researched: {researched}"
-            
-            learnings.append(learning_str)
+                learnings.append(f"**{topic}**: {primary_text}")
+            else:
+                learnings.append(primary_text)
         else:
-            logger.warning(f"Learnings contains unknown type: {type(item)}. Skipping.")
+            logger.warning(f"Skipping unknown learning type: {type(item)}")
     
     # --- Validating Activities structure ---
-    morning, afternoon, evening = [], [], []
+    activities_list = []
     
-    if isinstance(activities, dict):
-        morning = activities.get('morning', [])
-        afternoon = activities.get('afternoon', [])
-        evening = activities.get('evening', [])
-        
-        # Ensure all are lists
-        if not isinstance(morning, list): morning = []
-        if not isinstance(afternoon, list): afternoon = []
-        if not isinstance(evening, list): evening = []
-        
-    elif isinstance(activities, list):
-        # Fallback: distribute to afternoon
-        afternoon = activities
-        logger.warning(f"Activities received as list instead of dict. Distributing to Afternoon.")
+    if isinstance(activities_raw, list):
+        activities_list = activities_raw
+    elif isinstance(activities_raw, dict):
+        # Flatten if dict received
+        for k, v in activities_raw.items():
+            if isinstance(v, list):
+                activities_list.extend(v)
     else:
-        logger.warning(f"Activities received in unknown format: {type(activities)}. Defaulting to empty.")
+        logger.warning(f"Activities received in unknown format: {type(activities_raw)}. Defaulting to empty.")
     
-    # --- Final Validation - If ALL time periods are empty, log a warning ---
-    if not morning and not afternoon and not evening:
-        logger.error(f"WARNING: All activity time periods are empty for {safe_date}. Check LLM output!")
+    if not activities_list:
+        logger.error(f"WARNING: Activity list is empty for {safe_date}. Check LLM output!")
     
     # Helper to sanitize and format activities
     def sanitize_activities(items: List[Any]) -> List[str]:
@@ -513,73 +479,61 @@ def save_journal(date_str: str, data: Dict):
             if isinstance(item, str):
                 sanitized.append(item)
             elif isinstance(item, dict):
-                # Handle raw log dictionary or bad schema
-                # Schemas seen: 
-                # 1. Standard: {'activity': '...', 'topics': [...]}
-                # 2. 'Tasks' fallback: {'topic': '...', 'description': '...', 'related_files': []}
+                # Robust Dict Parsing
                 
-                time_range = ""
-                if 'start_time' in item:
-                    start = item.get('start_time', '')
-                    end = item.get('end_time', '')
-                    time_range = f"[{start}-{end}] "
+                # 1. Extract Main Title/Task
+                act = item.get('activity') or item.get('task') or item.get('topic') or item.get('description')
                 
-                # Extract main activity description
-                act = item.get('activity') or item.get('description') or item.get('topic')
+                # 2. Extract Details (String or List)
+                details = item.get('details') or item.get('action') or []
                 
-                app = item.get('application', '')
-                topics = item.get('topics', [])
-                urls = item.get('urls', [])
+                # 3. Consolidate Details if it's a list
+                details_str = ""
+                if isinstance(details, list):
+                    # Handle [{"file": "...", "action": "..."}] or ["step 1", "step 2"]
+                    sub_actions = []
+                    for d in details:
+                        if isinstance(d, str):
+                            sub_actions.append(d)
+                        elif isinstance(d, dict):
+                            # Try "action" + "file" or just "file"
+                            a = d.get('action', '')
+                            f = d.get('file', '')
+                            if a and f: sub_actions.append(f"{a} {f}")
+                            elif a: sub_actions.append(a)
+                            elif f: sub_actions.append(f)
+                            else: sub_actions.append(json.dumps(d, ensure_ascii=False))
+                    if sub_actions:
+                        details_str = "; ".join(sub_actions)
+                elif isinstance(details, str):
+                    details_str = details
                 
-                # Fallback logic for activity title
-                if not act:
-                    # Try to use the first topic (usually window title)
-                    if topics and isinstance(topics[0], str):
-                        act = topics[0]
-                        # Remove used topic from list to avoid duplication
-                        topics = topics[1:]
-                    elif app:
-                        act = f"Using {app}"
+                # 4. Construct Final String
+                if act:
+                    line = f"**{act}**"
+                    if details_str:
+                        line += f": {details_str}"
+                        
+                    # Add URL/App context if strictly present and not redundant
+                    app = item.get('application')
+                    if app and app not in line: 
+                        line += f" ({app})"
+                        
+                    sanitized.append(line)
+                else:
+                    # Fallback (Just try to print values)
+                    vals = [str(v) for v in item.values() if isinstance(v, (str, int, float))]
+                    if vals:
+                        sanitized.append(", ".join(vals))
                     else:
-                        act = "Unknown Activity"
-
-                # If parsed from 'tasks', topic might be title, description might be detail
-                if not item.get('activity') and item.get('topic') and item.get('description'):
-                    # format as "Topic: Description"
-                    act = f"{item['topic']}: {item['description']}"
-                
-                # Format: [HH:MM-HH:MM] Activity (App) - Topics
-                line = f"{time_range}{act}"
-                if app and act != f"Using {app}":
-                    line += f" ({app})"
-                
-                if topics:
-                    clean_topics = [t for t in topics if isinstance(t, str)]
-                    if clean_topics:
-                        line += f": {', '.join(clean_topics[:5])}"
-                        if len(clean_topics) > 5: line += "..."
-                
-                if urls:
-                    # extract url string from dict or str
-                    clean_urls = []
-                    for u in urls:
-                        if isinstance(u, dict):
-                            clean_urls.append(u.get('url', ''))
-                        elif isinstance(u, str):
-                            clean_urls.append(u)
-                    clean_urls = [u for u in clean_urls if u]
-                    if clean_urls:
-                        line += f" (URLs: {', '.join(clean_urls[:3])})"
-                
-                sanitized.append(line)
+                        sanitized.append(f"Raw: {json.dumps(item, ensure_ascii=False)}")
+                        
             else:
                 sanitized.append(str(item))
         return sanitized
 
-    # Sanitize all lists
-    morning = sanitize_activities(morning)
-    afternoon = sanitize_activities(afternoon)
-    evening = sanitize_activities(evening)
+    # Sanitize
+    activities_list = sanitize_activities(activities_list)
 
     # Helper to format lists
     def fmt_list(items):
@@ -601,15 +555,8 @@ facts: {json.dumps(facts)}
 > [!SUMMARY] Daily Summary
 > {summary}
 
-## Activity Log
-### Morning
-{fmt_list(morning)}
-
-### Afternoon
-{fmt_list(afternoon)}
-
-### Evening
-{fmt_list(evening)}
+## Activities
+{fmt_list(activities_list)}
 
 > [!NOTE] Learnings & Insights
 {fmt_list(learnings)}

@@ -114,6 +114,10 @@ try {
     Write-Log "Step 3: Running Archiver (Docker)..."
     docker compose run --rm core python modules/archiver.py
     
+    # 3.5. Review Phase (Monthly/Yearly Reviews)
+    Write-Log "Step 3.5: Running Reviewer (Docker)..."
+    docker compose run --rm core python modules/reviewer.py
+    
     # 4. Training Check (Optional)
     # Check if we should train (e.g., is it Sunday?)
     $DayOfWeek = (Get-Date).DayOfWeek
@@ -121,7 +125,8 @@ try {
         Write-Log "Step 4: Weekly Training (Trainer Container)..."
         # Note: This might take hours. Run detached or blocking? Blocking for now.
         # Ensure --gpus all is active in compose or via command line
-        docker compose run --rm --gpus all trainer python modules/trainer.py
+        docker compose run --rm trainer python modules/trainer.py
+        if ($LASTEXITCODE -ne 0) { throw "Trainer failed with exit code $LASTEXITCODE" }
     } else {
         Write-Log "Skipping Training (Not Sunday)."
     }
