@@ -1,0 +1,97 @@
+categories:
+  work:
+    label: "💻 Work"
+    priority: 10
+    activities:
+      - name: "Planning"
+        keywords: 
+          - "plan"
+          - "docs"
+          - ".md" 
+          - "notion"
+          - "jira"
+          - "linear"
+          - "implementation_plan"
+      - name: "Coding"
+        keywords: 
+          - ".py"
+          - ".ts"
+          - ".js"
+          - ".rs"
+          - ".go"
+          - ".java"
+          - ".cpp"
+          - "code"
+          - "visual studio"
+          - "debug"
+      - name: "Research"
+        keywords:
+          - "github"
+          - "stackoverflow"
+          - "stack overflow"
+          - "google"
+          - "search"
+          - "chatgpt"
+          - "claude"
+          - "gemini"
+          - "deep"
+    apps:
+      - "code"
+      - "devenv"
+      - "terminal"
+      - "windowsterminal"
+      - "obsidian"
+      - "powershell"
+      - "cmd"
+
+  communication:
+    label: "🗣️ Communication"
+    priority: 20
+    activities:
+      - name: "Meeting"
+        keywords: ["meet", "zoom", "call"]
+      - name: "Chat"
+        keywords: ["chat", "slack", "discord", "teams"]
+    apps:
+      - "teams"
+      - "slack"
+      - "discord"
+      - "outlook"
+      - "thunderbird"
+
+  entertainment:
+    label: "🎮 Break"
+    priority: 30
+    activities:
+      - name: "Gaming"
+        keywords: ["game", "play", "steam", "tft", "league"]
+      - name: "Video"
+        keywords: ["youtube", "netflix", "twitch", "prime video"]
+    apps:
+      - "steam"
+      - "riot client"
+      - "league of legends"
+      - "tft"
+      - "spotify"
+      - "vlc"
+
+  browse:
+    label: "🌐 Browse"
+    priority: 40
+    # Fallback for browsers if no specific keyword matches
+    apps:
+      - "floorp"
+      - "chrome"
+      - "msedge"
+      - "firefox"
+      - "brave"
+
+  system:
+    label: "⚙️ System"
+    priority: 99
+    apps:
+      - "explorer"
+      - "searchhost"
+      - "lockapp"
+      - "settings"
+      - "taskmgr"

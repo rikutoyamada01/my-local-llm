@@ -1,0 +1,18 @@
+# Project Rules for AI Assistant
+
+## 1. Environment & Execution
+- **Docker Only**: This project runs strictly inside Docker.
+    - **NEVER** run `python` or `pip` directly on the host (Windows).
+    - **ALWAYS** use: `docker compose exec -T core python <script>`
+    - **NEVER** suggest `pip install -r requirements.txt` locally.
+
+## 2. Log Generation (`cognizer.py`)
+- **Action-Based Logic**: We prioritize *what* the user is doing (Window Titles) over *which app* is open.
+- **Config**: Categorization rules are in `config/categories.yaml`.
+- **Logs**:
+    - Raw logs: `data/logs/sensor_log_*.json`
+    - Uncategorized apps: `data/logs/uncategorized_activities.log`
+- **Output**: Daily journals in `data/journals/` or configured Vault path.
+
+## 3. Language
+- **Language**: English is preferred for logs to ensure best performance with Local LLMs.
