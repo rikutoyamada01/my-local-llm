@@ -260,9 +260,7 @@ def create_monthly_review():
                     start_date=start_date,
                     end_date=end_date,
                     summaries=combined_text,
-                    start_date=start_date,
-                    end_date=end_date,
-                    summaries=combined_text,
+
                     rag_context=rag_context,
                     examples=load_examples("monthly")
                 )}
@@ -372,7 +370,7 @@ def create_yearly_review():
                 {"role": "user", "content": PROMPT_YEARLY.format(
                     year=year,
                     year_next=year_next,
-                    year_next=year_next,
+
                     summaries=combined_text,
                     rag_context=rag_context,
                     examples=load_examples("yearly")

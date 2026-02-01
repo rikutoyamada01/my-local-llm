@@ -113,15 +113,15 @@ Identify the **project name** from the window titles (e.g., "Antigravity", "my-l
 {examples}
 
 **INCORRECT EXAMPLE (DO NOT DO THIS)**:
-{
-  "activities": {"morning": []},  // ❌ WRONG - should be a simple list of strings
+{{
+  "activities": {{"morning": []}},  // ❌ WRONG - should be a simple list of strings
   "learnings": [
-    {"topic": "PostgreSQL", "researched": "indexing"}  // ❌ WRONG - should be a string
+    {{"topic": "PostgreSQL", "researched": "indexing"}}  // ❌ WRONG - should be a string
   ]
   "productivity_score": 5,
   "main_focus": "Development/Research/etc",
   "next_steps": ["Action item 1", "Action item 2"]
-}
+}}
 
 **RULES**:
 1. **activities**: MUST be an ARRAY of STRINGS. Format: "HH:MM - Description". DO NOT use Objects.
@@ -241,7 +241,7 @@ def process_logs(log_file: Path):
     else:
         # Map-Reduce
         logger.info("Tokens exceed limit. Triggering Map-Reduce...")
-        chunk_size = 12000 # Increased chunk size for text format
+        chunk_size = 6000 # Reduced chunk size for 4k context
         chunks = [full_input[i:i+chunk_size] for i in range(0, len(full_input), chunk_size)]
         
         micro_summaries = []
@@ -306,7 +306,18 @@ def process_logs(log_file: Path):
         logger.info(content[:1000])
         logger.info("=== END RAW RESPONSE ===")
 
-        result_json = json.loads(content)
+        try:
+            result_json = json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error(f"FATAL: LLM returned invalid JSON. Error: {e}")
+            logger.error(f"Invalid Content Snippet: {content[:500]}...")
+            # Do NOT suppress this error. Raise it to ensure the script fails properly.
+            raise ValueError(f"Invalid JSON from LLM: {e}")
+
+        if not isinstance(result_json, dict):
+             logger.error(f"FATAL: LLM returned valid JSON but not a dictionary. Got: {type(result_json)}")
+             raise ValueError("LLM response must be a JSON object (dict).")
+
         logger.info(f"JSON Keys Received: {list(result_json.keys())}")
         
         # DEBUG: Check summary explicitly
@@ -369,6 +380,9 @@ def process_logs(log_file: Path):
         
     except Exception as e:
         logger.error(f"Final Generation Error: {e}")
+        # Re-raise exception to ensure the script exits with non-zero code
+        # forcing the pipeline to notice the failure.
+        raise
 
 def get_past_context(current_date_str: str) -> str:
     """Retrieves summaries from yesterday and 7 days ago."""
