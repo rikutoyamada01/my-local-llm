@@ -303,7 +303,7 @@ class TimelineVisualizer:
             e_str = e_dt.strftime("%H:%M")
             
             duration_min = int(b['duration'] / 60)
-            if duration_min < 1: continue # Skip rendering super short blocks
+            if duration_min < 5: continue # Skip short activities (less than 5 min)
 
             # Format: > [!check] 💻 **Coding** (09:00 - 10:00) 60m
             #         > Working on Antigravity
@@ -323,38 +323,164 @@ class TimelineVisualizer:
         return "\n".join(lines)
 
     def generate_mermaid_gantt(self) -> str:
-        # Generate Mermaid Gantt Chart
+        """Generate Mermaid Gantt Chart grouped by project/app for better insights"""
         lines = ["```mermaid", "gantt", "title Activity Timeline", "dateFormat HH:mm", "axisFormat %H:%M"]
         
-        # Sections by Category
-        # Group blocks by category first
-        cat_blocks = defaultdict(list)
-        for b in self.processed_blocks:
-            cat_blocks[b['category']].append(b)
+        # Convert to JST helper
+        def to_jst(iso_str):
+            jst = datetime.timezone(datetime.timedelta(hours=9))
+            dt = datetime.datetime.fromisoformat(iso_str)
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(jst)
+            return dt
+        
+        # Extract project name from title or app dynamically
+        def extract_project(block):
+            title = block.get('title', '')
+            app = block.get('app', '')
             
-        for cat, blocks in cat_blocks.items():
-            section_name = cat.replace(":", "").strip()
+            # Common app name cleanup
+            app_clean = app.replace('.exe', '').strip()
+            
+            # Pattern 1: "ProjectName - AppName - Details" (common in IDEs)
+            # Example: "MyLife - Antigravity - update_dashboard.py"
+            if ' - ' in title:
+                parts = title.split(' - ')
+                if len(parts) >= 2:
+                    # First part is usually the project/folder name
+                    project_name = parts[0].strip()
+                    # Filter out app names that might appear in first position
+                    common_apps = ['Visual Studio', 'Antigravity', 'Obsidian', 'Microsoft']
+                    if project_name and not any(app_word in project_name for app_word in common_apps):
+                        return project_name
+                    # Second part might be project name
+                    elif len(parts) >= 2:
+                        second_part = parts[1].strip()
+                        if second_part and len(second_part) > 2:
+                            return second_part
+            
+            # Pattern 2: Check for known development tools and extract folder/project
+            dev_tools = {
+                'devenv.exe': 'Visual Studio',
+                'Code.exe': 'VS Code',
+                'pycharm': 'PyCharm',
+                'idea': 'IntelliJ',
+            }
+            
+            for tool_app, tool_name in dev_tools.items():
+                if tool_app.lower() in app.lower():
+                    # Try to extract project from title
+                    # Pattern: "project_name - filename* - Tool"
+                    if ' - ' in title:
+                        project = title.split(' - ')[0].strip()
+                        if project and len(project) > 2:
+                            return f"{project} ({tool_name})"
+                    return tool_name
+            
+            # Pattern 3: Browser grouping
+            browsers = ['floorp.exe', 'chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe']
+            if any(browser in app.lower() for browser in browsers):
+                return '🌐 Browser'
+            
+            # Pattern 4: Common productivity apps with emojis
+            app_mappings = {
+                'Obsidian': '📓 Obsidian',
+                'Teams': '💬 Teams',
+                'Slack': '💬 Slack',
+                'Discord': '💬 Discord',
+                'Notion': '📝 Notion',
+            }
+            
+            for app_keyword, display_name in app_mappings.items():
+                if app_keyword.lower() in app.lower() or app_keyword.lower() in title.lower():
+                    return display_name
+            
+            # Fallback: Use cleaned app name
+            if app_clean and len(app_clean) > 1:
+                return app_clean.title()
+            
+            return 'Other'
+        
+        # Separate long tasks (>=5min) and short interruptions (<5min)
+        long_tasks = []
+        short_tasks = []
+        
+        for b in self.processed_blocks:
+            s_dt = to_jst(b['start'])
+            e_dt = to_jst(b['end'])
+            duration_sec = (e_dt - s_dt).total_seconds()
+            
+            if duration_sec < 60: continue  # Skip <1min
+            
+            task = {
+                'project': extract_project(b),
+                'category': b['category'],
+                'activity': b['activity'],
+                'start': s_dt,
+                'end': e_dt,
+                'duration_min': int(duration_sec / 60),
+                'title': b['title']
+            }
+            
+            if task['duration_min'] >= 5:
+                long_tasks.append(task)
+            else:
+                short_tasks.append(task)
+        
+        # Group long tasks by project
+        project_tasks = defaultdict(list)
+        for t in long_tasks:
+            project_tasks[t['project']].append(t)
+        
+        # Sort projects by total time (descending)
+        project_totals = {proj: sum(t['duration_min'] for t in tasks) 
+                         for proj, tasks in project_tasks.items()}
+        sorted_projects = sorted(project_totals.items(), key=lambda x: x[1], reverse=True)
+        
+        # Display long tasks by project
+        for proj, total_min in sorted_projects:
+            tasks = project_tasks[proj]
+            
+            # Check if project name already has emoji
+            if any(char in proj for char in ['📝', '📊', '🖥️', '🌐', '📓', '💬', '📁', '🎮', '🎵']):
+                # Already has emoji, use as-is
+                section_name = proj
+            else:
+                # Assign emoji based on project characteristics
+                emoji = '📁'  # Default
+                
+                # Development/coding projects
+                if any(keyword in proj.lower() for keyword in ['visual studio', 'vs code', 'pycharm', 'intellij']):
+                    emoji = '�️'
+                # Specific known projects (flexible pattern matching)
+                elif 'antigravity' in proj.lower():
+                    emoji = '�'
+                elif 'mylife' in proj.lower():
+                    emoji = '📊'
+                # Documentation/writing
+                elif any(keyword in proj.lower() for keyword in ['doc', 'readme', 'note']):
+                    emoji = '�'
+                # Web/browser already handled in extract_project
+                
+                section_name = f"{emoji} {proj}"
+            
             lines.append(f"section {section_name}")
-            for b in blocks:
-                # Convert to JST (Japan Standard Time, UTC+9)
-                jst = datetime.timezone(datetime.timedelta(hours=9))
-                s_dt = datetime.datetime.fromisoformat(b['start'])
-                e_dt = datetime.datetime.fromisoformat(b['end'])
-                # Convert to JST if timestamp has timezone info
-                if s_dt.tzinfo is not None:
-                    s_dt = s_dt.astimezone(jst)
-                if e_dt.tzinfo is not None:
-                    e_dt = e_dt.astimezone(jst)
-                
-                # Mermaid needs simple IDs? 
-                label = b['activity']
-                start = s_dt.strftime("%H:%M")
-                end = e_dt.strftime("%H:%M")
-                
-                # Check duration
-                if (e_dt - s_dt).total_seconds() < 60: continue
-
-                lines.append(f"{label} : {start}, {end}")
+            
+            for t in tasks:
+                label = t['activity']
+                start = t['start'].strftime("%H:%M")
+                end = t['end'].strftime("%H:%M")
+                lines.append(f"{label} ({t['duration_min']}m) : {start}, {end}")
+        
+        # Display short interruptions as "Brief Switches" section
+        if short_tasks:
+            lines.append("section ⚡ Brief Switches")
+            for t in short_tasks:
+                label = f"{t['activity']}"
+                start = t['start'].strftime("%H:%M")
+                end = t['end'].strftime("%H:%M")
+                # Use 'crit' to visually distinguish interruptions
+                lines.append(f"{label} ({t['duration_min']}m) : crit, {start}, {end}")
         
         lines.append("```")
         return "\n".join(lines)
