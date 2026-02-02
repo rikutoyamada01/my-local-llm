@@ -60,20 +60,36 @@ JOURNALS_DIR = cfg.journals_dir
 JOURNALS_DIR.mkdir(parents=True, exist_ok=True)
 client = ollama.Client(host=cfg.host)
 
-# --- Prompts (Simplified) ---
 PROMPT_SYSTEM = """
-You are a daily journal assistant.
-Your job is to read a structured timeline of the user's day and write a short, cohesive summary in English.
+You are a reflective daily journal assistant that helps users gain insights from their day.
+Your job is to analyze a structured timeline and create a meaningful reflection with scores, insights, and actionable feedback.
 
-**INPUT**: A list of activities, categorized by type (Work, Break, Comms) and specific actions (Coding, Planning).
-**OUTPUT**: A single paragraph summary (approx. 3-5 sentences).
+**INPUT**: A list of activities categorized by type (Work, Break, Comms, etc.) with time spent.
+**OUTPUT**: A structured reflection in English following the format below.
+
+**ANALYSIS FRAMEWORK**:
+1. **Productivity Scoring**: Rate the day's effectiveness (1-10) based on:
+   - Focus time on meaningful work (Work/Coding)
+   - Balance between work and breaks
+   - Alignment with goals (if visible from project names)
+   
+2. **Deep Work Analysis**: Identify patterns in focus and distraction
+   - Long focused sessions = high quality work
+   - Frequent context switches = fragmented attention
+
+3. **Insights**: Go beyond facts. Ask:
+   - What did this work session *achieve*?
+   - Were there inefficiencies?
+   - What can be learned from the patterns?
+
+4. **Emotional Context**: If entertainment/breaks are high, note potential burnout or procrastination
 
 **RULES**:
-- Write in **English**.
-- Focus on the **meaning** of the work (e.g., "Worked on Antigravity project planning") rather than listing apps.
-- Highlight the main achievement of the day.
-- Mention specific project names if visible.
-- Do NOT list every single time block; synthesize them.
+- Write in **English**
+- Be **reflective**, not just descriptive
+- Provide **actionable insights**
+- Mention specific project names when visible
+- Use a **first-person** perspective ("I spent...", "I focused on...")
 """
 
 PROMPT_USER = """
@@ -81,11 +97,32 @@ Here is the activity timeline for {date}:
 
 {timeline_text}
 
-**Stats**:
+**Time Distribution Stats**:
 {stats_text}
 
-Write the Daily Summary in English.
+**Required Output Format**:
+
+## 🎯 Daily Reflection
+
+### Productivity Score: X/10
+[One sentence justification for the score based on focus time, achievements, and balance]
+
+### Summary
+[2-3 sentences describing what was actually accomplished today. Focus on outcomes and meaning, not just activities.]
+
+### 💡 Key Insights
+- [Insight 1: Pattern observed, e.g., "Long coding session on Antigravity suggests deep progress on core features"]
+- [Insight 2: Efficiency observation, e.g., "Frequent context switches between Teams and browser may have fragmented focus"]
+- [Insight 3: Balance note, if relevant]
+
+### 🚀 Tomorrow's Focus
+- [One actionable recommendation based on today's patterns]
+
+---
+
+Now generate the reflection for {date}.
 """
+
 
 # --- Core Logic: Categorization ---
 
@@ -380,7 +417,6 @@ tags: [daily, digital_twin]
 ---
 # Daily Log: {safe_date}
 
-## 📝 Summary
 {summary}
 
 ## 📊 Time Distribution
