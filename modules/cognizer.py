@@ -342,21 +342,36 @@ class TimelineVisualizer:
             # Common app name cleanup
             app_clean = app.replace('.exe', '').strip()
             
+            # Known app names to skip when they appear in title parts
+            known_apps = [
+                'Antigravity',  # Custom editor/IDE
+                'Visual Studio', 'VS Code', 'Code',
+                'Obsidian', 'Notion',
+                'Microsoft', 'Windows',
+                'PyCharm', 'IntelliJ',
+            ]
+            
             # Pattern 1: "ProjectName - AppName - Details" (common in IDEs)
             # Example: "MyLife - Antigravity - update_dashboard.py"
+            # Extract: MyLife (first part), ignore Antigravity (app name)
             if ' - ' in title:
-                parts = title.split(' - ')
+                parts = [p.strip() for p in title.split(' - ')]
+                
+                # Try first part as project name
+                if len(parts) >= 1:
+                    first_part = parts[0]
+                    # Check if first part is NOT a known app name
+                    if first_part and not any(app_name in first_part for app_name in known_apps):
+                        # Validate it's a reasonable project name
+                        if len(first_part) > 1 and not first_part.endswith('.exe'):
+                            return first_part
+                
+                # If first part is app name or invalid, try second part
                 if len(parts) >= 2:
-                    # First part is usually the project/folder name
-                    project_name = parts[0].strip()
-                    # Filter out app names that might appear in first position
-                    common_apps = ['Visual Studio', 'Antigravity', 'Obsidian', 'Microsoft']
-                    if project_name and not any(app_word in project_name for app_word in common_apps):
-                        return project_name
-                    # Second part might be project name
-                    elif len(parts) >= 2:
-                        second_part = parts[1].strip()
-                        if second_part and len(second_part) > 2:
+                    second_part = parts[1]
+                    # Only use second part if it's NOT a known app name
+                    if second_part and not any(app_name in second_part for app_name in known_apps):
+                        if len(second_part) > 2 and not second_part.endswith('.exe'):
                             return second_part
             
             # Pattern 2: Check for known development tools and extract folder/project
