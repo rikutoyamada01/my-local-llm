@@ -41,6 +41,7 @@ categories:
       - "terminal"
       - "windowsterminal"
       - "obsidian"
+      - "antigravity"  # Custom IDE/Editor
       - "powershell"
       - "cmd"
 
@@ -95,3 +96,5 @@ categories:
       - "lockapp"
       - "settings"
       - "taskmgr"
+      - "startmenuexperiencehost"  # Windows Start Menu
+      - "openwith"  # Open With dialog
