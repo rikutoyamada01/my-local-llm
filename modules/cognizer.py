@@ -100,6 +100,12 @@ Here is the activity timeline for {date}:
 **Time Distribution Stats**:
 {stats_text}
 
+**Context from Yesterday**:
+{yesterday_context}
+
+**Historical Insights** (from past reflections):
+{rag_context}
+
 **Required Output Format**:
 
 ## 🎯 Daily Reflection
@@ -114,14 +120,16 @@ Here is the activity timeline for {date}:
 - [Insight 1: Pattern observed, e.g., "Long coding session on Antigravity suggests deep progress on core features"]
 - [Insight 2: Efficiency observation, e.g., "Frequent context switches between Teams and browser may have fragmented focus"]
 - [Insight 3: Balance note, if relevant]
+- [If relevant: Connection to yesterday's focus or past patterns from RAG context]
 
 ### 🚀 Tomorrow's Focus
-- [One actionable recommendation based on today's patterns]
+- [One actionable recommendation based on today's patterns and yesterday's goals]
 
 ---
 
 Now generate the reflection for {date}.
 """
+
 
 
 # --- Core Logic: Categorization ---
@@ -393,7 +401,69 @@ def process_logs(log_file: Path):
     timeline_raw = data.get("timeline", [])
     viz = TimelineVisualizer(timeline_raw)
     
-    # 2. LLM Summary
+    # 2. Get Yesterday's Journal (for context)
+    yesterday_context = ""
+    try:
+        # Calculate yesterday's date
+        current_dt = datetime.datetime.strptime(safe_date, "%Y-%m-%d")
+        yesterday_dt = current_dt - datetime.timedelta(days=1)
+        yesterday_str = yesterday_dt.strftime("%Y-%m-%d")
+        yesterday_file = JOURNALS_DIR / f"{yesterday_str}_daily.md"
+        
+        if yesterday_file.exists():
+            with open(yesterday_file, 'r', encoding='utf-8') as f:
+                yesterday_content = f.read()
+                # Extract only the reflection section (skip detailed activities)
+                if "## 🎯 Daily Reflection" in yesterday_content:
+                    reflection_start = yesterday_content.find("## 🎯 Daily Reflection")
+                    reflection_end = yesterday_content.find("## 📊 Time Distribution")
+                    if reflection_end > reflection_start:
+                        yesterday_context = yesterday_content[reflection_start:reflection_end].strip()
+                    else:
+                        yesterday_context = yesterday_content[reflection_start:].strip()
+                else:
+                    # Fallback: take first 500 chars
+                    yesterday_context = yesterday_content[:500]
+                logger.info(f"Loaded yesterday's journal: {yesterday_file}")
+        else:
+            yesterday_context = "(No journal from yesterday)"
+            logger.info("No journal found from yesterday")
+    except Exception as e:
+        logger.warning(f"Failed to load yesterday's journal: {e}")
+        yesterday_context = "(Unable to load yesterday's journal)"
+    
+    # 3. RAG: Retrieve Historical Insights
+    rag_context = ""
+    try:
+        from memory import MemoryManager
+        memory = MemoryManager()
+        
+        # Query for relevant insights before today
+        current_dt = datetime.datetime.strptime(safe_date, "%Y-%m-%d")
+        current_ts = current_dt.timestamp()
+        
+        query_text = "productivity insights focus achievements challenges patterns"
+        past_insights = memory.query(
+            query_text,
+            n_results=3,
+            where={"timestamp": {"$lt": current_ts}}
+        )
+        
+        if past_insights:
+            rag_lines = []
+            for idx, insight in enumerate(past_insights, 1):
+                date = insight['metadata'].get('date', 'Unknown')
+                content = insight['content']
+                rag_lines.append(f"- ({date}): {content}")
+            rag_context = "\n".join(rag_lines)
+            logger.info(f"Retrieved {len(past_insights)} historical insights from memory")
+        else:
+            rag_context = "(No historical insights found)"
+    except Exception as e:
+        logger.warning(f"RAG retrieval failed: {e}")
+        rag_context = "(RAG unavailable)"
+    
+    # 4. LLM Summary with context
     timeline_text = viz.get_text_for_llm()
     stats_text = viz.generate_stats_table()
     
@@ -401,7 +471,13 @@ def process_logs(log_file: Path):
     try:
         response = client.chat(model=cfg.model, messages=[
             {"role": "system", "content": PROMPT_SYSTEM},
-            {"role": "user", "content": PROMPT_USER.format(date=safe_date, timeline_text=timeline_text, stats_text=stats_text)}
+            {"role": "user", "content": PROMPT_USER.format(
+                date=safe_date,
+                timeline_text=timeline_text,
+                stats_text=stats_text,
+                yesterday_context=yesterday_context,
+                rag_context=rag_context
+            )}
         ])
         summary = response['message']['content']
     except Exception as e:
