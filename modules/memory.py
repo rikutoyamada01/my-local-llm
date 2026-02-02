@@ -82,8 +82,10 @@ class MemoryManager:
             
             scored_results = []
             
-            # Current time for decay
-            now_ts = datetime.datetime.now().timestamp()
+            # Current time for decay (use JST for consistency)
+            jst = datetime.timezone(datetime.timedelta(hours=9))
+            now_jst = datetime.datetime.now(jst)
+            now_ts = now_jst.timestamp()
             
             for doc, meta, dist in zip(docs, metas, dists):
                 # Similarity Score (approximated from distance)

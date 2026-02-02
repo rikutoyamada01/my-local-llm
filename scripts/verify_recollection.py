@@ -20,14 +20,18 @@ def verify_recency_bias():
 
     print("\n=== Ingesting Test Facts ===")
     
+    # Use JST (Japan Standard Time, UTC+9) for consistency
+    jst = datetime.timezone(datetime.timedelta(hours=9))
+    now_jst = datetime.datetime.now(jst)
+    
     # Fact 1: Old (30 days ago)
-    old_date = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    old_date = (now_jst - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
     fact_old = "I love eating Sushi for dinner."
     print(f"Ingesting OLD Fact ({old_date}): {fact_old}")
     mem.ingest_fact(fact_old, old_date, {"type": "test"})
 
     # Fact 2: Recent (Today)
-    recent_date = datetime.datetime.now().strftime("%Y-%m-%d")
+    recent_date = now_jst.strftime("%Y-%m-%d")
     fact_new = "I changed my mind, I now love eating Pizza for dinner."
     print(f"Ingesting NEW Fact ({recent_date}): {fact_new}")
     mem.ingest_fact(fact_new, recent_date, {"type": "test"})

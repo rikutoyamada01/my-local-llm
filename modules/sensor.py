@@ -472,8 +472,12 @@ def main(hours=24, dry_run=False):
     print(f"Compressed into {len(sessions)} high-level sessions.")
     
     # 3. Save
+    # Use JST (Japan Standard Time, UTC+9) for logging
+    jst = datetime.timezone(datetime.timedelta(hours=9))
+    now_jst = datetime.datetime.now(jst)
+    
     payload = {
-        "date": datetime.datetime.now().isoformat(),
+        "date": now_jst.isoformat(),
         "timeline": sessions, # Optimized format
         # "raw_window": events, # Optional: Keep raw if needed for debug, but user wants optimized
         # "raw_browser": history 
@@ -483,7 +487,7 @@ def main(hours=24, dry_run=False):
         print("Dry Run: Not saving files.")
         # print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
-        filename = f"sensor_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        filename = f"sensor_log_{now_jst.strftime('%Y%m%d_%H%M%S')}.json"
         filepath = LOGS_DIR / filename
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)
@@ -770,8 +774,12 @@ def main(hours=24, dry_run=False):
     print(f"Compressed into {len(sessions)} high-level sessions.")
     
     # 3. Save
+    # Use JST (Japan Standard Time, UTC+9) for logging
+    jst = datetime.timezone(datetime.timedelta(hours=9))
+    now_jst = datetime.datetime.now(jst)
+    
     payload = {
-        "date": datetime.datetime.now().isoformat(),
+        "date": now_jst.isoformat(),
         "timeline": sessions
     }
     
@@ -779,7 +787,7 @@ def main(hours=24, dry_run=False):
         print("Dry Run: Not saving files.")
         # print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
-        filename = f"sensor_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        filename = f"sensor_log_{now_jst.strftime('%Y%m%d_%H%M%S')}.json"
         filepath = LOGS_DIR / filename
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)

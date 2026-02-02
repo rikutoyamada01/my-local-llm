@@ -145,7 +145,10 @@ class Categorizer:
             self.unknown_cache.add(sig)
             try:
                 with open(UNCATEGORIZED_LOG, "a", encoding="utf-8") as f:
-                    timestamp = datetime.datetime.now().isoformat()
+                    # Use JST (Japan Standard Time, UTC+9) for logging
+                    jst = datetime.timezone(datetime.timedelta(hours=9))
+                    now_jst = datetime.datetime.now(jst)
+                    timestamp = now_jst.isoformat()
                     f.write(f"[{timestamp}] App: '{app}', Title: '{title}'\n")
             except Exception as e:
                 logger.error(f"Failed to log uncategorized: {e}")
@@ -241,9 +244,16 @@ class TimelineVisualizer:
     def generate_markdown(self) -> str:
         lines = []
         for b in self.processed_blocks:
-            # Parse ISO timestamps to HH:MM
+            # Parse ISO timestamps to HH:MM in JST
+            # Convert to JST (Japan Standard Time, UTC+9)
+            jst = datetime.timezone(datetime.timedelta(hours=9))
             s_dt = datetime.datetime.fromisoformat(b['start'])
             e_dt = datetime.datetime.fromisoformat(b['end'])
+            # Convert to JST if timestamp has timezone info
+            if s_dt.tzinfo is not None:
+                s_dt = s_dt.astimezone(jst)
+            if e_dt.tzinfo is not None:
+                e_dt = e_dt.astimezone(jst)
             s_str = s_dt.strftime("%H:%M")
             e_str = e_dt.strftime("%H:%M")
             
@@ -281,8 +291,15 @@ class TimelineVisualizer:
             section_name = cat.replace(":", "").strip()
             lines.append(f"section {section_name}")
             for b in blocks:
+                # Convert to JST (Japan Standard Time, UTC+9)
+                jst = datetime.timezone(datetime.timedelta(hours=9))
                 s_dt = datetime.datetime.fromisoformat(b['start'])
                 e_dt = datetime.datetime.fromisoformat(b['end'])
+                # Convert to JST if timestamp has timezone info
+                if s_dt.tzinfo is not None:
+                    s_dt = s_dt.astimezone(jst)
+                if e_dt.tzinfo is not None:
+                    e_dt = e_dt.astimezone(jst)
                 
                 # Mermaid needs simple IDs? 
                 label = b['activity']
