@@ -43,6 +43,8 @@ class ConfigLoader:
         
         self.host = os.environ.get("OLLAMA_HOST", "http://host.docker.internal:11434")
         self.model = self.config.get("ollama_model", "llama3")
+        self.fallback_model = self.config.get("fallback_model")
+
         
         # Path Resolution
         env_path = os.environ.get("OBSIDIAN_MOUNT_PATH")
@@ -61,73 +63,54 @@ JOURNALS_DIR.mkdir(parents=True, exist_ok=True)
 client = ollama.Client(host=cfg.host)
 
 PROMPT_SYSTEM = """
-You are a reflective daily journal assistant that helps users gain insights from their day.
-Your job is to analyze a structured timeline and create a meaningful reflection with scores, insights, and actionable feedback.
+You are a reflective daily journal assistant. Your goal is to provide a concise, grounded analysis of a user's day based ONLY on the provided activity timeline.
 
-**INPUT**: A list of activities categorized by type (Work, Break, Comms, etc.) with time spent.
-**OUTPUT**: A structured reflection in English following the format below.
-
-**ANALYSIS FRAMEWORK**:
-1. **Productivity Scoring**: Rate the day's effectiveness (1-10) based on:
-   - Focus time on meaningful work (Work/Coding)
-   - Balance between work and breaks
-   - Alignment with goals (if visible from project names)
-   
-2. **Deep Work Analysis**: Identify patterns in focus and distraction
-   - Long focused sessions = high quality work
-   - Frequent context switches = fragmented attention
-
-3. **Insights**: Go beyond facts. Ask:
-   - What did this work session *achieve*?
-   - Were there inefficiencies?
-   - What can be learned from the patterns?
-
-4. **Emotional Context**: If entertainment/breaks are high, note potential burnout or procrastination
-
-**RULES**:
-- Write in **English**
-- Be **reflective**, not just descriptive
-- Provide **actionable insights**
-- Mention specific project names when visible
-- Use a **first-person** perspective ("I spent...", "I focused on...")
+**CORE RULES**:
+1. **NO HALLUCINATION**: Do not invent accomplishments, projects, or activities. If the timeline is short, keep the reflection short.
+2. **GROUNDING**: Stick strictly to the durations and app names provided. If only one 15m session exists, do not say "multiple sessions".
+3. **NO META-TALK**: Do not mention the output format, formatting rules, or the quality of your own response. Start directly with the reflection.
+4. **STYLE**: Use first-person ("I"). Be professional, insightful, and concise. Write in English.
+5. **INSIGHTS**: Focus on patterns (e.g., context switching, deep work sessions). If data is insufficient for deep insights, focus on factual patterns.
 """
 
 PROMPT_USER = """
-Here is the activity timeline for {date}:
-
+**ACTIVITY LOG FOR {date}**:
 {timeline_text}
 
-**Time Distribution Stats**:
+**TIME STATS**:
 {stats_text}
 
-**Context from Yesterday**:
+---
+**CONTEXT FROM YESTERDAY**:
 {yesterday_context}
 
-**Historical Insights** (from past reflections):
+**HISTORICAL PATTERNS (RAG)**:
 {rag_context}
+---
 
-**Required Output Format**:
+**INSTRUCTIONS**:
+1. First, reason about the logs in a <thinking> block. List the main work blocks and their durations. Identify any gaps or hallucinations you must avoid.
+2. Then, provide the final reflection using the following Markdown format.
+
+**REQUIRED FORMAT**:
 
 ## 🎯 Daily Reflection
 
 ### Productivity Score: X/10
-[One sentence justification for the score based on focus time, achievements, and balance]
+[Ground the score in the actual minutes worked vs distractions.]
 
 ### Summary
-[2-3 sentences describing what was actually accomplished today. Focus on outcomes and meaning, not just activities.]
+[2-3 sentences. Stick to what is visible in the logs.]
 
 ### 💡 Key Insights
-- [Insight 1: Pattern observed, e.g., "Long coding session on Antigravity suggests deep progress on core features"]
-- [Insight 2: Efficiency observation, e.g., "Frequent context switches between Teams and browser may have fragmented focus"]
-- [Insight 3: Balance note, if relevant]
-- [If relevant: Connection to yesterday's focus or past patterns from RAG context]
+- [Insight based on context switches, session length, or project focus.]
+- [Connection to yesterday or RAG context only if highly relevant.]
 
 ### 🚀 Tomorrow's Focus
-- [One actionable recommendation based on today's patterns and yesterday's goals]
+- [One specific, data-driven recommendation.]
 
 ---
-
-Now generate the reflection for {date}.
+Generate the reflection now.
 """
 
 
@@ -593,11 +576,14 @@ def process_logs(log_file: Path):
         if past_insights:
             rag_lines = []
             for idx, insight in enumerate(past_insights, 1):
-                date = insight['metadata'].get('date', 'Unknown')
-                content = insight['content']
-                rag_lines.append(f"- ({date}): {content}")
-            rag_context = "\n".join(rag_lines)
-            logger.info(f"Retrieved {len(past_insights)} historical insights from memory")
+                # Only include highly relevant insights (thresholding)
+                if insight.get('score', 0) > 1.2: # Time-weighted score threshold
+                    date = insight['metadata'].get('date', 'Unknown')
+                    content = insight['content']
+                    rag_lines.append(f"- ({date}): {content}")
+            
+            rag_context = "\n".join(rag_lines) if rag_lines else "(No relevant historical insights found)"
+            logger.info(f"Retrieved {len(rag_lines)} relevant historical insights")
         else:
             rag_context = "(No historical insights found)"
     except Exception as e:
@@ -622,8 +608,28 @@ def process_logs(log_file: Path):
         ])
         summary = response['message']['content']
     except Exception as e:
-        logger.error(f"LLM Error: {e}")
-        summary = "AI summarization failed."
+        error_msg = str(e).lower()
+        if "memory" in error_msg and cfg.fallback_model:
+            logger.warning(f"Primary model failed due to memory. Falling back to {cfg.fallback_model}...")
+            try:
+                response = client.chat(model=cfg.fallback_model, messages=[
+                    {"role": "system", "content": PROMPT_SYSTEM},
+                    {"role": "user", "content": PROMPT_USER.format(
+                        date=safe_date,
+                        timeline_text=timeline_text,
+                        stats_text=stats_text,
+                        yesterday_context=yesterday_context,
+                        rag_context=rag_context
+                    )}
+                ])
+                summary = response['message']['content']
+                summary = f"> [!WARNING] Generated using fallback model `{cfg.fallback_model}` due to system memory constraints.\n\n" + summary
+            except Exception as fe:
+                logger.error(f"Fallback LLM Error: {fe}")
+                summary = "AI summarization failed (Primary and Fallback)."
+        else:
+            logger.error(f"LLM Error: {e}")
+            summary = "AI summarization failed."
 
     # 3. Assemble Markdown
     md_path = JOURNALS_DIR / f"{safe_date}_daily.md"

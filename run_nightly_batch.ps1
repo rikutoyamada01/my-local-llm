@@ -108,7 +108,13 @@ try {
     # We use 'docker compose run' to execute the one-off task
     Set-Location $ProjectRoot
     docker compose run --rm core python -u modules/cognizer.py
-    if ($LASTEXITCODE -ne 0) { throw "Cognizer failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { 
+        Write-Log "Cognizer failed. Attempting to pull images and retry..."
+        docker compose pull core chromadb
+        docker compose run --rm core python -u modules/cognizer.py
+        if ($LASTEXITCODE -ne 0) { throw "Cognizer failed again after pull with exit code $LASTEXITCODE" }
+    }
+
 
     # 3. Memory Phase (Weekly Rollup)
     Write-Log "Step 3: Running Archiver (Docker)..."
