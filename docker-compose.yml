@@ -7,6 +7,8 @@ services:
       - "8000:8000"
     volumes:
       - ./data/chroma:/chroma/chroma
+    environment:
+      - ANONYMIZED_TELEMETRY=False
     restart: unless-stopped
 
   core:
@@ -23,6 +25,7 @@ services:
       - OBSIDIAN_MOUNT_PATH=/obsidian_vault
       - OLLAMA_HOST=http://host.docker.internal:11434
       - CHROMA_HOST=http://chromadb:8000
+      - ANONYMIZED_TELEMETRY=False
     depends_on:
       - chromadb
     extra_hosts:

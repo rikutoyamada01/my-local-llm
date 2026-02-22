@@ -10,7 +10,7 @@ config/secrets.yaml
 # Data & Logs (Privacy)
 # data/logs/
 data/journals/
-# data/chroma/
+data/chroma/
 # data/models/
 *.log
 logs/
@@ -26,6 +26,11 @@ wandb/
 
 # Docker
 .dockerignore
+
+# Debug / Test scripts (local dev only)
+modules/debug_*.py
+modules/test_*.py
+link
 
 # OS
 .DS_Store

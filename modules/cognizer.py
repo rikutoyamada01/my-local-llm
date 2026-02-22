@@ -63,54 +63,50 @@ JOURNALS_DIR.mkdir(parents=True, exist_ok=True)
 client = ollama.Client(host=cfg.host)
 
 PROMPT_SYSTEM = """
-You are a reflective daily journal assistant. Your goal is to provide a concise, grounded analysis of a user's day based ONLY on the provided activity timeline.
+あなたはユーザーの日次活動ログを分析し、日本語で振り返りを書くアシスタントです。
 
-**CORE RULES**:
-1. **NO HALLUCINATION**: Do not invent accomplishments, projects, or activities. If the timeline is short, keep the reflection short.
-2. **GROUNDING**: Stick strictly to the durations and app names provided. If only one 15m session exists, do not say "multiple sessions".
-3. **NO META-TALK**: Do not mention the output format, formatting rules, or the quality of your own response. Start directly with the reflection.
-4. **STYLE**: Use first-person ("I"). Be professional, insightful, and concise. Write in English.
-5. **INSIGHTS**: Focus on patterns (e.g., context switching, deep work sessions). If data is insufficient for deep insights, focus on factual patterns.
+**絶対ルール**:
+1. **ハルシネーション禁止**: ログにないことは書かない。時間やアプリ名を正確に。
+2. **日本語のみ**: 英語や他言語を一切混ぜないでください。数字とアプリ名以外は全て日本語。
+3. **直接出力**: 「## 🎯 今日の振り返り」から始めてください。前置きや説明は不要です。
+
+**用語定義**（必ず守ること）:
+- 「Antigravity」「Antigravity.exe」= AIアシスタントツール（エディタ/IDE）。**開発プロジェクトではない**。ウィンドウタイトルに「mojiban - Antigravity - ファイル名」と表示される場合、作業対象は「mojiban」プロジェクトであり、Antigravityはツール名。
+- 「AtCoder」= 競技プログラミングサイト。ブラウザでAtCoderのページを見ている場合は「競技プログラミングの学習」と記述。
+- 「floorp.exe」= ウェブブラウザ。
+- 「Code.exe」= Visual Studio Code（エディタ）。
 """
 
 PROMPT_USER = """
-**ACTIVITY LOG FOR {date}**:
+{date} の活動ログ:
 {timeline_text}
 
-**TIME STATS**:
+時間統計:
 {stats_text}
 
 ---
-**CONTEXT FROM YESTERDAY**:
+昨日のコンテキスト:
 {yesterday_context}
 
-**HISTORICAL PATTERNS (RAG)**:
+過去のパターン:
 {rag_context}
 ---
 
-**INSTRUCTIONS**:
-1. First, reason about the logs in a <thinking> block. List the main work blocks and their durations. Identify any gaps or hallucinations you must avoid.
-2. Then, provide the final reflection using the following Markdown format.
+以下のMarkdown形式で振り返りを出力してください。日本語のみで書いてください。
 
-**REQUIRED FORMAT**:
+## 🎯 今日の振り返り
 
-## 🎯 Daily Reflection
+### 生産性スコア: X/10
+[作業時間と集中の度合いに基づいた短い評価理由]
 
-### Productivity Score: X/10
-[Ground the score in the actual minutes worked vs distractions.]
+### 要約
+[2-3文で簡潔に。ログにある事実のみ。]
 
-### Summary
-[2-3 sentences. Stick to what is visible in the logs.]
+### 💡 洞察
+- [データに基づく洞察を1-2個]
 
-### 💡 Key Insights
-- [Insight based on context switches, session length, or project focus.]
-- [Connection to yesterday or RAG context only if highly relevant.]
-
-### 🚀 Tomorrow's Focus
-- [One specific, data-driven recommendation.]
-
----
-Generate the reflection now.
+### 🚀 明日のフォーカス
+- [具体的な推奨事項を1つ]
 """
 
 
@@ -507,7 +503,16 @@ class TimelineVisualizer:
             duration_min = int(b['duration'] / 60)
             if duration_min < 5: continue
             
-            lines.append(f"[{b['category']}] {b['activity']} ({duration_min}m): {b['title']} (App: {b['app']})")
+            # Clarify app names to prevent LLM hallucination
+            app_label = b['app']
+            title = b['title']
+            if 'antigravity' in app_label.lower():
+                # Extract real project from title pattern: "ProjectName - Antigravity - FileName"
+                parts = [p.strip() for p in title.split(' - ')]
+                project = parts[0] if len(parts) >= 2 else "不明"
+                app_label = f"Antigravity(AIアシスタント/エディタ) → プロジェクト: {project}"
+            
+            lines.append(f"[{b['category']}] {b['activity']} ({duration_min}m): {title} (ツール: {app_label})")
         return "\n".join(lines)
 
 # --- Main Pipeline ---
@@ -562,11 +567,25 @@ def process_logs(log_file: Path):
         from memory import MemoryManager
         memory = MemoryManager()
         
-        # Query for relevant insights before today
+        # Dynamic query based on today's stats and activities
+        top_activities = []
+        for block in viz.processed_blocks:
+            if block['duration'] > 300: # Over 5m
+                top_activities.append(block['activity'])
+                if block['title']:
+                    # Extract keywords from title
+                    words = re.findall(r'\w+', block['title'].lower())
+                    top_activities.extend([w for w in words if len(w) > 3])
+        
+        query_text = " ".join(list(set(top_activities))[:5])
+        if not query_text:
+            query_text = "productivity insights patterns"
+        
+        logger.info(f"RAG Query: {query_text}")
+        
         current_dt = datetime.datetime.strptime(safe_date, "%Y-%m-%d")
         current_ts = current_dt.timestamp()
         
-        query_text = "productivity insights focus achievements challenges patterns"
         past_insights = memory.query(
             query_text,
             n_results=3,
@@ -576,8 +595,8 @@ def process_logs(log_file: Path):
         if past_insights:
             rag_lines = []
             for idx, insight in enumerate(past_insights, 1):
-                # Only include highly relevant insights (thresholding)
-                if insight.get('score', 0) > 1.2: # Time-weighted score threshold
+                # Include insights above minimum relevance threshold
+                if insight.get('score', 0) > 0.3: # Lowered: old 1.2 was unreachable for older data
                     date = insight['metadata'].get('date', 'Unknown')
                     content = insight['content']
                     rag_lines.append(f"- ({date}): {content}")
@@ -594,8 +613,21 @@ def process_logs(log_file: Path):
     timeline_text = viz.get_text_for_llm()
     stats_text = viz.generate_stats_table()
     
+    def clear_ollama_memory():
+        """Unload all models from Ollama memory"""
+        try:
+            # Setting keep_alive to 0 for a non-existent request effectively unloads all models 
+            # or we can send a dedicated request with keep_alive=0
+            logger.info("Requesting Ollama to unload models...")
+            client.generate(model=cfg.model, prompt="", keep_alive=0)
+        except Exception as e:
+            logger.warning(f"Failed to clear Ollama memory: {e}")
+
     summary = ""
     try:
+        # Pre-clear memory before primary attempt
+        # clear_ollama_memory() 
+        
         response = client.chat(model=cfg.model, messages=[
             {"role": "system", "content": PROMPT_SYSTEM},
             {"role": "user", "content": PROMPT_USER.format(
@@ -605,12 +637,15 @@ def process_logs(log_file: Path):
                 yesterday_context=yesterday_context,
                 rag_context=rag_context
             )}
-        ])
+        ], options={"num_ctx": 8192, "num_predict": 2048}, keep_alive=0)
         summary = response['message']['content']
+        # Post-process: strip <thinking> blocks that leak into output
+        summary = re.sub(r'<thinking>.*?</thinking>', '', summary, flags=re.DOTALL).strip()
     except Exception as e:
         error_msg = str(e).lower()
-        if "memory" in error_msg and cfg.fallback_model:
-            logger.warning(f"Primary model failed due to memory. Falling back to {cfg.fallback_model}...")
+        if ("memory" in error_msg or "overloaded" in error_msg or "failed to load" in error_msg) and cfg.fallback_model:
+            logger.warning(f"Primary model failed ({error_msg}). Clearing memory and falling back to {cfg.fallback_model}...")
+            clear_ollama_memory()
             try:
                 response = client.chat(model=cfg.fallback_model, messages=[
                     {"role": "system", "content": PROMPT_SYSTEM},
@@ -621,7 +656,7 @@ def process_logs(log_file: Path):
                         yesterday_context=yesterday_context,
                         rag_context=rag_context
                     )}
-                ])
+                ], options={"num_ctx": 8192, "num_predict": 1024}, keep_alive=0)
                 summary = response['message']['content']
                 summary = f"> [!WARNING] Generated using fallback model `{cfg.fallback_model}` due to system memory constraints.\n\n" + summary
             except Exception as fe:
@@ -657,6 +692,27 @@ tags: [daily, digital_twin]
     
     logger.info(f"Saved Journal: {md_path}")
     
+    # 5. Save insights to Memory (Self-Improvement Loop)
+    if summary and "AI summarization failed" not in summary:
+        try:
+            from memory import MemoryManager
+            memory = MemoryManager()
+            # Extract bullet points from Key Insights section
+            insight_match = re.search(r"### 💡 (?:Key Insights|洞察)\n(.*?)(?=\n\n|\n#|---|$)", summary, re.DOTALL)
+            if insight_match:
+                insights = insight_match.group(1).strip().split("\n")
+                for insight in insights:
+                    clean_insight = insight.strip("- ").strip()
+                    if clean_insight:
+                        memory.ingest_fact(
+                            fact=clean_insight,
+                            date_str=safe_date,
+                            metadata={"source": "daily_journal", "type": "insight"}
+                        )
+                logger.info(f"Ingested {len(insights)} insights to memory.")
+        except Exception as e:
+            logger.warning(f"Failed to ingest insights to memory: {e}")
+
     # Rename processed file
     new_name = log_file.with_suffix('.json.processed')
     log_file.rename(new_name)

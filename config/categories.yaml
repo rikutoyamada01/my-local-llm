@@ -35,15 +35,33 @@ categories:
           - "claude"
           - "gemini"
           - "deep"
+          - "qiita"
+          - "zenn"
     apps:
       - "code"
       - "devenv"
       - "terminal"
       - "windowsterminal"
       - "obsidian"
-      - "antigravity"  # Custom IDE/Editor
+      - "antigravity"  # AI Assistant Tool
       - "powershell"
       - "cmd"
+
+  skill_dev:
+    label: "💡 Skill Dev"
+    priority: 15
+    activities:
+      - name: "Competitive Programming"
+        keywords:
+          - "atcoder"
+          - "algorithmic"
+          - "contest"
+      - name: "Learning"
+        keywords:
+          - "tutorial"
+          - "course"
+          - "doc"
+    apps: []
 
   communication:
     label: "🗣️ Communication"
