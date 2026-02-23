@@ -28,6 +28,10 @@ class ConfigLoader:
                 self.config = yaml.safe_load(f) or {}
         else:
             print(f"Warning: {CONFIG_PATH} not found. Using defaults.")
+        
+        self.git_repos = self.config.get("git_repos", [])
+        self.git_base_folders = self.config.get("git_base_folders", [])
+        self.git_author = self.config.get("git_author", "yamadarikuto")
 
     @property
     def blocked_domains(self) -> List[str]:
@@ -64,6 +68,129 @@ def is_domain_blocked(url: str) -> bool:
     return False
 
 # --- ActivityWatch Integration ---
+
+def discover_git_repos(base_paths: List[str], max_depth: int = 4) -> List[Dict]:
+    """
+    Recursively find git repositories in base_paths up to max_depth.
+    """
+    discovered = []
+    
+    for base in base_paths:
+        base_path = Path(base)
+        if not base_path.exists():
+            print(f"Warning: Base folder {base_path} does not exist. Skipping.")
+            continue
+            
+        # Recursive scan with depth limit
+        stack = [(base_path, 0)]
+        while stack:
+            curr_path, depth = stack.pop()
+            
+            # Check if current path is a git repo
+            if (curr_path / ".git").exists():
+                discovered.append({
+                    "path": str(curr_path),
+                    "name": curr_path.name
+                })
+                # Don't go deeper into a git repo (usually)
+                continue
+                
+            if depth < max_depth:
+                try:
+                    for child in curr_path.iterdir():
+                        if child.is_dir() and not child.name.startswith('.'):
+                            stack.append((child, depth + 1))
+                except PermissionError:
+                    continue
+                    
+    return discovered
+
+def get_git_activity(hours: int = 24) -> List[Dict]:
+    """
+    Fetch git commit logs from configured and discovered repositories.
+    """
+    import subprocess
+    import shutil
+    
+    if not shutil.which("git"):
+        print("Git CLI not found, skipping git activity collection.")
+        return []
+    
+    # Calculate 'since' date
+    jst = datetime.timezone(datetime.timedelta(hours=9))
+    since_dt = datetime.datetime.now(jst) - datetime.timedelta(hours=hours)
+    # Format for git: "2024-02-23 00:00:00"
+    since_str = since_dt.strftime("%Y-%m-%d %H:%M:%S")
+    
+    all_activity = []
+    
+    # Combine hardcoded repos and discovered folders
+    target_repos = list(config.git_repos)
+    if config.git_base_folders:
+        discovered = discover_git_repos(config.git_base_folders, max_depth=4)
+        print(f"Discovered {len(discovered)} repos in base folders.")
+        # Avoid duplicates
+        existing_paths = {str(Path(r["path"])) for r in target_repos}
+        for d in discovered:
+            if str(Path(d["path"])) not in existing_paths:
+                target_repos.append(d)
+    
+    for repo_cfg in target_repos:
+        repo_path = Path(repo_cfg.get("path", ""))
+        repo_name = repo_cfg.get("name", repo_path.name)
+        
+        if not repo_path.exists():
+            # Silently skip discovered repos that might have been moved or are inaccessible
+            continue
+            
+        try:
+            # git log --since --author --format
+            cmd = [
+                "git", "log", 
+                f'--since="{since_str}"',
+                "--all",
+                "--no-merges",
+                '--format=%H|%s|%ai|%an'
+            ]
+            if config.git_author:
+                cmd.append(f'--author={config.git_author}')
+                
+            result = subprocess.run(
+                cmd, 
+                cwd=str(repo_path),
+                capture_output=True, 
+                text=True, 
+                encoding="utf-8", 
+                errors="replace"
+            )
+            
+            if result.returncode != 0:
+                # Some repos might not have the author or might be empty
+                continue
+                
+            commits = []
+            for line in result.stdout.splitlines():
+                if not line.strip(): continue
+                parts = line.split('|')
+                if len(parts) >= 4:
+                    hash_val, msg, ts, author = parts[0], parts[1], parts[2], parts[3]
+                    commits.append({
+                        "hash": hash_val[:7],
+                        "message": sanitize_text(msg),
+                        "timestamp": ts,
+                        "author": author
+                    })
+            
+            if commits:
+                all_activity.append({
+                    "repo": repo_name,
+                    "commits": commits
+                })
+                
+        except Exception as e:
+            print(f"Failed to fetch git log for {repo_name}: {e}")
+            
+    return all_activity
 def get_window_activity(hours: int = 24) -> List[Dict[str, Any]]:
     """
     Fetch window events from ActivityWatch (aw-watcher-window).
@@ -773,14 +900,20 @@ def main(hours=24, dry_run=False):
     sessions = compress_sessions(sessions)
     print(f"Compressed into {len(sessions)} high-level sessions.")
     
-    # 3. Save
+    # 3. Fetch Git Activity
+    print(f"Fetching Git activity from {len(config.git_repos)} repos...")
+    git_activity = get_git_activity(hours)
+    print(f"Extracted activity from {len(git_activity)} repositories.")
+    
+    # 4. Save
     # Use JST (Japan Standard Time, UTC+9) for logging
     jst = datetime.timezone(datetime.timedelta(hours=9))
     now_jst = datetime.datetime.now(jst)
     
     payload = {
         "date": now_jst.isoformat(),
-        "timeline": sessions
+        "timeline": sessions,
+        "git_activity": git_activity
     }
     
     if dry_run:

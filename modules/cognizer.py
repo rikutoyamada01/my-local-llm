@@ -85,6 +85,10 @@ PROMPT_USER = """
 {stats_text}
 
 ---
+今日の Git コミット:
+{git_text}
+
+---
 昨日のコンテキスト:
 {yesterday_context}
 
@@ -116,13 +120,16 @@ PROMPT_USER = """
 class Categorizer:
     def __init__(self):
         self.rules = {}
+        self.section_emojis = {}
         self.load_rules()
         self.unknown_cache = set()
 
     def load_rules(self):
         if CATEGORIES_PATH.exists():
             with open(CATEGORIES_PATH, "r", encoding="utf-8") as f:
-                self.rules = yaml.safe_load(f).get("categories", {})
+                data = yaml.safe_load(f)
+                self.rules = data.get("categories", {})
+                self.section_emojis = data.get("section_emojis", {})
         else:
             logger.warning("categories.yaml not found! Using empty rules.")
 
@@ -312,102 +319,115 @@ class TimelineVisualizer:
             if dt.tzinfo is not None:
                 dt = dt.astimezone(jst)
             return dt
+
+    def extract_project(self, block: Dict) -> str:
+        """
+        Extract project name from title or app dynamically.
+        Improved with browser topic extraction and tool exclusion.
+        """
+        title = block.get('title', '')
+        app = block.get('app', '')
+        category = block.get('category', '')
+        activity = block.get('activity', '')
         
-        # Extract project name from title or app dynamically
-        def extract_project(block):
-            title = block.get('title', '')
-            app = block.get('app', '')
+        # 1. Browser Detection & Topic Extraction (Task 1.1)
+        # Prioritize browser detection before general ' - ' split
+        browsers = ['floorp.exe', 'chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'floorp', 'chrome', 'msedge', 'firefox', 'brave']
+        is_browser = any(b in app.lower() for b in browsers) or "Browse" in category
+        
+        if is_browser:
+            # Try to extract topic from title using keywords in categories.yaml
+            # Sort categories by priority (Task 1.4 integration)
+            sorted_cats = sorted(self.categorizer.rules.items(), key=lambda k_v: k_v[1].get('priority', 999))
             
-            # Common app name cleanup
-            app_clean = app.replace('.exe', '').strip()
+            best_match = None
+            for cat_key, rule in sorted_cats:
+                if 'activities' in rule:
+                    for act in rule['activities']:
+                        keywords = act.get('keywords', [])
+                        for kw in keywords:
+                            # Use word boundary check or look for longest match to avoid "code" matching in "AtCoder"
+                            if kw.lower() in title.lower() and len(kw) > 3:
+                                if not best_match or len(kw) > len(best_match[0]):
+                                    best_match = (kw, category)
             
-            # Known app names to skip when they appear in title parts
-            known_apps = [
-                'Antigravity',  # Custom editor/IDE
-                'Visual Studio', 'VS Code', 'Code',
-                'Obsidian', 'Notion',
-                'Microsoft', 'Windows',
-                'PyCharm', 'IntelliJ',
-            ]
+            if best_match:
+                return self.format_section(best_match[0], best_match[1])
             
-            # Pattern 1: "ProjectName - AppName - Details" (common in IDEs)
-            # Example: "MyLife - Antigravity - update_dashboard.py"
-            # Extract: MyLife (first part), ignore Antigravity (app name)
+            # Fallback to domain/site name
             if ' - ' in title:
                 parts = [p.strip() for p in title.split(' - ')]
-                
-                # Try first part as project name
-                if len(parts) >= 1:
-                    first_part = parts[0]
-                    # Check if first part is NOT a known app name
-                    if first_part and not any(app_name in first_part for app_name in known_apps):
-                        # Validate it's a reasonable project name
-                        if len(first_part) > 1 and not first_part.endswith('.exe'):
-                            return first_part
-                
-                # If first part is app name or invalid, try second part
+                # Usually "Title - Site - Browser" or "Title - Site"
                 if len(parts) >= 2:
-                    second_part = parts[1]
-                    # Only use second part if it's NOT a known app name
-                    if second_part and not any(app_name in second_part for app_name in known_apps):
-                        if len(second_part) > 2 and not second_part.endswith('.exe'):
-                            return second_part
+                    # Check if last part is browser name, if so take the one before it
+                    if any(b in parts[-1].lower() for b in browsers):
+                        if len(parts) >= 3: return self.format_section(parts[-2], category)
+                        else: return self.format_section(parts[0], category)
+                    return self.format_section(parts[-1], category)
+
+            return self.format_section('Web', category)
+
+        # 2. Tool name & File name exclusion (Task 1.2)
+        app_clean = app.replace('.exe', '').strip()
+        known_tools = [
+            'Antigravity', 'Visual Studio', 'VS Code', 'Code', 'Obsidian', 'Notion',
+            'PyCharm', 'IntelliJ', 'Terminal', 'PowerShell', 'Cmd', 'Floorp', 'Chrome'
+        ]
+        
+        # Pattern: "Project - Tool - File" (common in IDEs)
+        if ' - ' in title:
+            parts = [p.strip() for p in title.split(' - ')]
             
-            # Pattern 2: Check for known development tools and extract folder/project
-            dev_tools = {
-                'devenv.exe': 'Visual Studio',
-                'Code.exe': 'VS Code',
-                'pycharm': 'PyCharm',
-                'idea': 'IntelliJ',
-            }
+            # Filter out filenames (Task 1.2: extension filtering)
+            exts = ('.py', '.ts', '.js', '.cpp', '.h', '.md', '.json', '.yaml', '.yml', '.rs', '.go', '.java')
             
-            for tool_app, tool_name in dev_tools.items():
-                if tool_app.lower() in app.lower():
-                    # Try to extract project from title
-                    # Pattern: "project_name - filename* - Tool"
-                    if ' - ' in title:
-                        project = title.split(' - ')[0].strip()
-                        if project and len(project) > 2:
-                            return f"{project} ({tool_name})"
-                    return tool_name
-            
-            # Pattern 3: Browser grouping
-            browsers = ['floorp.exe', 'chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe']
-            if any(browser in app.lower() for browser in browsers):
-                return '🌐 Browser'
-            
-            # Pattern 4: Common productivity apps with emojis
-            app_mappings = {
-                'Obsidian': '📓 Obsidian',
-                'Teams': '💬 Teams',
-                'Slack': '💬 Slack',
-                'Discord': '💬 Discord',
-                'Notion': '📝 Notion',
-            }
-            
-            for app_keyword, display_name in app_mappings.items():
-                if app_keyword.lower() in app.lower() or app_keyword.lower() in title.lower():
-                    return display_name
-            
-            # Fallback: Use cleaned app name
-            if app_clean and len(app_clean) > 1:
-                return app_clean.title()
-            
-            return 'Other'
+            for part in parts:
+                # If part is not a tool name and doesn't look like a file/path
+                is_tool = any(tool.lower() in part.lower() for tool in known_tools)
+                is_file = part.lower().endswith(exts) or '/' in part or '\\' in part
+                
+                if not is_tool and not is_file and len(part) > 1:
+                    return self.format_section(part, category)
+
+        # 3. Fallback to activity or category
+        if activity and activity != "General":
+            return self.format_section(activity, category)
+        
+        return self.format_section(app_clean.title() if app_clean else "Other", category)
+
+    def format_section(self, name: str, category: str) -> str:
+        """Helper to format section name with consistent emoji (Task 1.3)"""
+        # Map category label (e.g. "💻 Work") back to key (e.g. "work")
+        cat_key = "default"
+        for k, v in self.categorizer.rules.items():
+            if v.get('label') == category:
+                cat_key = k
+                break
+        
+        emoji = self.categorizer.section_emojis.get(cat_key, self.categorizer.section_emojis.get("default", "📁"))
+        return f"{emoji} {name}"
+
+    def generate_mermaid_gantt(self) -> str:
+        """Generate Mermaid Gantt Chart grouped by project/app for better insights"""
+        lines = ["```mermaid", "gantt", "title Activity Timeline", "dateFormat HH:mm", "axisFormat %H:%M"]
         
         # Separate long tasks (>=5min) and short interruptions (<5min)
         long_tasks = []
         short_tasks = []
         
         for b in self.processed_blocks:
-            s_dt = to_jst(b['start'])
-            e_dt = to_jst(b['end'])
-            duration_sec = (e_dt - s_dt).total_seconds()
+            s_dt = datetime.datetime.fromisoformat(b['start'])
+            e_dt = datetime.datetime.fromisoformat(b['end'])
+            # Convert to JST (Japan Standard Time, UTC+9)
+            jst = datetime.timezone(datetime.timedelta(hours=9))
+            if s_dt.tzinfo is not None: s_dt = s_dt.astimezone(jst)
+            if e_dt.tzinfo is not None: e_dt = e_dt.astimezone(jst)
             
+            duration_sec = (e_dt - s_dt).total_seconds()
             if duration_sec < 60: continue  # Skip <1min
             
             task = {
-                'project': extract_project(b),
+                'project': self.extract_project(b),
                 'category': b['category'],
                 'activity': b['activity'],
                 'start': s_dt,
@@ -434,31 +454,7 @@ class TimelineVisualizer:
         # Display long tasks by project
         for proj, total_min in sorted_projects:
             tasks = project_tasks[proj]
-            
-            # Check if project name already has emoji
-            if any(char in proj for char in ['📝', '📊', '🖥️', '🌐', '📓', '💬', '📁', '🎮', '🎵']):
-                # Already has emoji, use as-is
-                section_name = proj
-            else:
-                # Assign emoji based on project characteristics
-                emoji = '📁'  # Default
-                
-                # Development/coding projects
-                if any(keyword in proj.lower() for keyword in ['visual studio', 'vs code', 'pycharm', 'intellij']):
-                    emoji = '�️'
-                # Specific known projects (flexible pattern matching)
-                elif 'antigravity' in proj.lower():
-                    emoji = '�'
-                elif 'mylife' in proj.lower():
-                    emoji = '📊'
-                # Documentation/writing
-                elif any(keyword in proj.lower() for keyword in ['doc', 'readme', 'note']):
-                    emoji = '�'
-                # Web/browser already handled in extract_project
-                
-                section_name = f"{emoji} {proj}"
-            
-            lines.append(f"section {section_name}")
+            lines.append(f"section {proj}")
             
             for t in tasks:
                 label = t['activity']
@@ -526,6 +522,39 @@ def process_logs(log_file: Path):
     date_str = data.get("date", str(datetime.date.today()))
     safe_date = date_str.split("T")[0]
     
+    # 0. Extract Git Activity (Task 2.1)
+    git_activity = data.get("git_activity", [])
+    git_text = ""
+    git_md_section = ""
+    
+    if git_activity:
+        git_lines = []
+        git_md_lines = ["## 🔨 今日のコミット\n"]
+        
+        for repo_data in git_activity:
+            repo_name = repo_data.get("repo", "Unknown")
+            commits = repo_data.get("commits", [])
+            
+            if commits:
+                git_md_lines.append(f"### {repo_name}")
+                for c in commits:
+                    msg = c.get("message", "")
+                    h = c.get("hash", "")
+                    ts = c.get("timestamp", "")
+                    # Extract time from timestamp like "2026-02-23 23:00:00 +0900"
+                    time_str = ts.split(" ")[1][:5] if " " in ts else ""
+                    
+                    line = f"- `{h}` {msg} ({time_str})"
+                    git_lines.append(f"[{repo_name}] {msg} ({time_str})")
+                    git_md_lines.append(line)
+                git_md_lines.append("") # Spacer
+        
+        git_text = "\n".join(git_lines) if git_lines else "(No commits today)"
+        git_md_section = "\n".join(git_md_lines)
+    else:
+        git_text = "(No git activity recorded)"
+        git_md_section = "" # Don't show section if empty
+
     # 1. Visualize & Categorize
     timeline_raw = data.get("timeline", [])
     viz = TimelineVisualizer(timeline_raw)
@@ -634,6 +663,7 @@ def process_logs(log_file: Path):
                 date=safe_date,
                 timeline_text=timeline_text,
                 stats_text=stats_text,
+                git_text=git_text,
                 yesterday_context=yesterday_context,
                 rag_context=rag_context
             )}
@@ -653,6 +683,7 @@ def process_logs(log_file: Path):
                         date=safe_date,
                         timeline_text=timeline_text,
                         stats_text=stats_text,
+                        git_text=git_text,
                         yesterday_context=yesterday_context,
                         rag_context=rag_context
                     )}
@@ -674,8 +705,10 @@ date: {safe_date}
 tags: [daily, digital_twin]
 ---
 # Daily Log: {safe_date}
-
+ 
 {summary}
+
+{git_md_section}
 
 ## 📊 Time Distribution
 {viz.generate_stats_table()}

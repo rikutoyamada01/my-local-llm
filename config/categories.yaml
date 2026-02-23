@@ -1,3 +1,12 @@
+section_emojis:
+  work: "💻"
+  skill_dev: "💡"
+  communication: "🗣️"
+  entertainment: "🎮"
+  browse: "🌐"
+  system: "⚙️"
+  default: "📁"
+
 categories:
   work:
     label: "💻 Work"
@@ -26,17 +35,17 @@ categories:
           - "debug"
       - name: "Research"
         keywords:
-          - "github"
-          - "stackoverflow"
-          - "stack overflow"
-          - "google"
-          - "search"
-          - "chatgpt"
-          - "claude"
-          - "gemini"
-          - "deep"
-          - "qiita"
-          - "zenn"
+          - "GitHub"
+          - "StackOverflow"
+          - "Stack Overflow"
+          - "Google"
+          - "Search"
+          - "ChatGPT"
+          - "Claude"
+          - "Gemini"
+          - "DeepSeek"
+          - "Qiita"
+          - "Zenn"
     apps:
       - "code"
       - "devenv"
@@ -53,9 +62,9 @@ categories:
     activities:
       - name: "Competitive Programming"
         keywords:
-          - "atcoder"
-          - "algorithmic"
-          - "contest"
+          - "AtCoder"
+          - "Algorithmic"
+          - "Contest"
       - name: "Learning"
         keywords:
           - "tutorial"
