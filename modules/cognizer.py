@@ -407,6 +407,40 @@ class TimelineVisualizer:
         emoji = self.categorizer.section_emojis.get(cat_key, self.categorizer.section_emojis.get("default", "📁"))
         return f"{emoji} {name}"
 
+    def generate_static_summary(self) -> str:
+        """Generate a factual summary based on statistics when LLM is unavailable (Part 3)"""
+        total_sec = sum(self.stats.values())
+        if total_sec == 0:
+            return "> [!NOTE] 本日の活動記録はありませんでした。"
+        
+        # Sort categories by duration
+        sorted_stats = sorted(self.stats.items(), key=lambda x: x[1], reverse=True)
+        top_cat, top_sec = sorted_stats[0]
+        
+        # Calculate total hours/mins
+        total_min = int(total_sec / 60)
+        h, m = divmod(total_min, 60)
+        total_str = f"{h}時間{m}分" if h > 0 else f"{m}分"
+        
+        # Calculate top category hours/mins
+        top_min = int(top_sec / 60)
+        th, tm = divmod(top_min, 60)
+        top_str = f"{th}時間{tm}分" if th > 0 else f"{tm}分"
+        
+        summary = f"## 🎯 活動概要 (Best-effort)\n\n"
+        summary += f"本日は合計 **{total_str}** の活動が記録されました。\n\n"
+        summary += f"- 最も多くの時間を費やしたカテゴリ: **{top_cat}** ({top_str})\n"
+        
+        if len(sorted_stats) > 1:
+            next_cat, next_sec = sorted_stats[1]
+            nm = int(next_sec / 60)
+            nh, nm = divmod(nm, 60)
+            next_str = f"{nh}時間{nm}分" if nh > 0 else f"{nm}分"
+            summary += f"- 次いで注目されたカテゴリ: **{next_cat}** ({next_str})\n"
+            
+        summary += "\n---\n> [!IMPORTANT]\n> **AI要約失敗に伴う自動代替テキスト:** 本日はAIモデルによる詳細な振り返り生成ができなかったため、収集された活動ログから統計に基づき、事実関係のみを抽出して概要を構成しました。"
+        return summary
+
     def generate_mermaid_gantt(self) -> str:
         """Generate Mermaid Gantt Chart grouped by project/app for better insights"""
         lines = ["```mermaid", "gantt", "title Activity Timeline", "dateFormat HH:mm", "axisFormat %H:%M"]
@@ -638,6 +672,16 @@ def process_logs(log_file: Path):
         logger.warning(f"RAG retrieval failed: {e}")
         rag_context = "(RAG unavailable)"
     
+    # 0.1 Sensor Status & Diagnostics (Part 3)
+    status_info = data.get("status", {})
+    diagnostics = status_info.get("diagnostics", [])
+    diag_md = ""
+    if diagnostics:
+        diag_lines = ["\n> [!CAUTION]", "> **センサー診断情報:** データの収集過程で以下のエラーが発生しました。一部の情報が欠落している可能性があります。"]
+        for diag in diagnostics:
+            diag_lines.append(f"> - {diag}")
+        diag_md = "\n".join(diag_lines) + "\n"
+    
     # 4. LLM Summary with context
     timeline_text = viz.get_text_for_llm()
     stats_text = viz.generate_stats_table()
@@ -673,8 +717,15 @@ def process_logs(log_file: Path):
         summary = re.sub(r'<thinking>.*?</thinking>', '', summary, flags=re.DOTALL).strip()
     except Exception as e:
         error_msg = str(e).lower()
-        if ("memory" in error_msg or "overloaded" in error_msg or "failed to load" in error_msg) and cfg.fallback_model:
-            logger.warning(f"Primary model failed ({error_msg}). Clearing memory and falling back to {cfg.fallback_model}...")
+        # Fallback on memory issues OR general request failures if a fallback model exists
+        should_fallback = cfg.fallback_model and (
+            "memory" in error_msg or "overloaded" in error_msg or 
+            "failed to load" in error_msg or "timeout" in error_msg or 
+            "connection" in error_msg or "error" in error_msg
+        )
+        
+        if should_fallback:
+            logger.warning(f"Primary model failed ({error_msg}). Falling back to {cfg.fallback_model}...")
             clear_ollama_memory()
             try:
                 response = client.chat(model=cfg.fallback_model, messages=[
@@ -689,23 +740,31 @@ def process_logs(log_file: Path):
                     )}
                 ], options={"num_ctx": 8192, "num_predict": 1024}, keep_alive=0)
                 summary = response['message']['content']
-                summary = f"> [!WARNING] Generated using fallback model `{cfg.fallback_model}` due to system memory constraints.\n\n" + summary
+                summary = f"> [!WARNING] メインモデルの不調により `{cfg.fallback_model}` を使用して生成されました。\n\n" + summary
             except Exception as fe:
                 logger.error(f"Fallback LLM Error: {fe}")
-                summary = "AI summarization failed (Primary and Fallback)."
+                summary = "" # Trigger static summary
         else:
-            logger.error(f"LLM Error: {e}")
-            summary = "AI summarization failed."
+            logger.error(f"LLM Error (no fallback): {e}")
+            summary = "" # Trigger static summary
 
-    # 3. Assemble Markdown
+    # 3. Final Fallback: Rule-based Static Summary (Task 3.2: Graceful Degradation)
+    if not summary or "[!ERROR]" in summary:
+        summary = viz.generate_static_summary()
+
+    # 4. Assemble Markdown
     md_path = JOURNALS_DIR / f"{safe_date}_daily.md"
     
+    # Ensure summary is at least a placeholder
+    if not summary:
+        summary = "> [!WARNING] AI要約が空です。"
+
     markdown_content = f"""---
 date: {safe_date}
 tags: [daily, digital_twin]
 ---
 # Daily Log: {safe_date}
- 
+{diag_md}
 {summary}
 
 {git_md_section}
@@ -746,9 +805,14 @@ tags: [daily, digital_twin]
         except Exception as e:
             logger.warning(f"Failed to ingest insights to memory: {e}")
 
-    # Rename processed file
+    # Rename processed file (Task 3: Robustness)
     new_name = log_file.with_suffix('.json.processed')
-    log_file.rename(new_name)
+    try:
+        if new_name.exists():
+            new_name.unlink()
+        log_file.rename(new_name)
+    except Exception as e:
+        logger.warning(f"Failed to rename log file {log_file} to {new_name}: {e}")
     logger.info("Done.")
 
 def main():
