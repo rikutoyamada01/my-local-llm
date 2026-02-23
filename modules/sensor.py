@@ -123,28 +123,30 @@ def get_git_activity(hours: int = 24) -> List[Dict]:
     since_str = since_dt.strftime("%Y-%m-%d %H:%M:%S")
     
     all_activity = []
+    diagnostics = []
     
     # Combine hardcoded repos and discovered folders
     target_repos = list(config.git_repos)
     if config.git_base_folders:
-        discovered = discover_git_repos(config.git_base_folders, max_depth=4)
-        print(f"Discovered {len(discovered)} repos in base folders.")
-        # Avoid duplicates
-        existing_paths = {str(Path(r["path"])) for r in target_repos}
-        for d in discovered:
-            if str(Path(d["path"])) not in existing_paths:
-                target_repos.append(d)
+        try:
+            discovered = discover_git_repos(config.git_base_folders, max_depth=4)
+            print(f"Discovered {len(discovered)} repos in base folders.")
+            # Avoid duplicates
+            existing_paths = {str(Path(r["path"])) for r in target_repos}
+            for d in discovered:
+                if str(Path(d["path"])) not in existing_paths:
+                    target_repos.append(d)
+        except Exception as e:
+            diagnostics.append(f"Discovery error: {e}")
     
     for repo_cfg in target_repos:
         repo_path = Path(repo_cfg.get("path", ""))
         repo_name = repo_cfg.get("name", repo_path.name)
         
         if not repo_path.exists():
-            # Silently skip discovered repos that might have been moved or are inaccessible
             continue
             
         try:
-            # git log --since --author --format
             cmd = [
                 "git", "log", 
                 f'--since="{since_str}"',
@@ -165,7 +167,9 @@ def get_git_activity(hours: int = 24) -> List[Dict]:
             )
             
             if result.returncode != 0:
-                # Some repos might not have the author or might be empty
+                # Capture stderr for diagnostics
+                err_msg = result.stderr.strip().splitlines()[0] if result.stderr else "Return code != 0"
+                diagnostics.append(f"Git error in {repo_name}: {err_msg}")
                 continue
                 
             commits = []
@@ -188,9 +192,9 @@ def get_git_activity(hours: int = 24) -> List[Dict]:
                 })
                 
         except Exception as e:
-            print(f"Failed to fetch git log for {repo_name}: {e}")
+            diagnostics.append(f"Failed to fetch git log for {repo_name}: {e}")
             
-    return all_activity
+    return all_activity, diagnostics
 def get_window_activity(hours: int = 24) -> List[Dict[str, Any]]:
     """
     Fetch window events from ActivityWatch (aw-watcher-window).
@@ -881,29 +885,64 @@ def compress_sessions(sessions: List[Dict], interruption_threshold: int = 60, no
 def main(hours=24, dry_run=False):
     print(f"--- Starting Sensor (Last {hours} hours) ---")
     
-    # 1. Fetch Streams
-    history = get_browser_history(hours)
-    print(f"Extracted {len(history)} browser items.")
+    status = {
+        "browser": "pending",
+        "window": "pending",
+        "git": "pending",
+        "diagnostics": []
+    }
     
-    events = get_window_activity(hours)
-    print(f"Extracted {len(events)} window events.")
+    # 1. Fetch Streams
+    history = []
+    try:
+        history = get_browser_history(hours)
+        print(f"Extracted {len(history)} browser items.")
+        status["browser"] = "ok"
+    except Exception as e:
+        status["browser"] = "failed"
+        status["diagnostics"].append(f"Browser extraction failed: {e}")
+        print(f"Error: {e}")
+    
+    events = []
+    try:
+        events = get_window_activity(hours)
+        print(f"Extracted {len(events)} window events.")
+        status["window"] = "ok"
+    except Exception as e:
+        status["window"] = "failed"
+        status["diagnostics"].append(f"Window activity extraction failed: {e}")
+        print(f"Error: {e}")
     
     # 2. Algorithmic Fusion & Sessionization
-    print("Fusing streams...")
-    fused = fuse_streams(history, events)
-    
-    print("Sessionizing events...")
-    sessions = sessionize_events(fused)
-    print(f"Initial Sessions: {len(sessions)}")
-    
-    print("Compressing timeline (A-B-A merge & Noise filter)...")
-    sessions = compress_sessions(sessions)
-    print(f"Compressed into {len(sessions)} high-level sessions.")
+    sessions = []
+    if events:
+        try:
+            print("Fusing streams...")
+            fused = fuse_streams(history, events)
+            
+            print("Sessionizing events...")
+            sessions = sessionize_events(fused)
+            print(f"Initial Sessions: {len(sessions)}")
+            
+            print("Compressing timeline (A-B-A merge & Noise filter)...")
+            sessions = compress_sessions(sessions)
+            print(f"Compressed into {len(sessions)} high-level sessions.")
+        except Exception as e:
+            status["diagnostics"].append(f"Processing failed: {e}")
+            print(f"Error: {e}")
     
     # 3. Fetch Git Activity
-    print(f"Fetching Git activity from {len(config.git_repos)} repos...")
-    git_activity = get_git_activity(hours)
-    print(f"Extracted activity from {len(git_activity)} repositories.")
+    git_activity = []
+    try:
+        print(f"Fetching Git activity from {len(config.git_repos)} repos + base folders...")
+        git_activity, git_diagnostics = get_git_activity(hours)
+        print(f"Extracted activity from {len(git_activity)} repositories.")
+        status["git"] = "ok"
+        status["diagnostics"].extend(git_diagnostics)
+    except Exception as e:
+        status["git"] = "failed"
+        status["diagnostics"].append(f"Git activity extraction failed: {e}")
+        print(f"Error: {e}")
     
     # 4. Save
     # Use JST (Japan Standard Time, UTC+9) for logging
@@ -912,6 +951,7 @@ def main(hours=24, dry_run=False):
     
     payload = {
         "date": now_jst.isoformat(),
+        "status": status,
         "timeline": sessions,
         "git_activity": git_activity
     }
