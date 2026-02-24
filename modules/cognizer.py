@@ -63,54 +63,65 @@ JOURNALS_DIR.mkdir(parents=True, exist_ok=True)
 client = ollama.Client(host=cfg.host)
 
 PROMPT_SYSTEM = """
-あなたはユーザーの日次活動ログを分析し、日本語で振り返りを書くアシスタントです。
+あなたはユーザーのデジタルツインとして、日次活動ログを深く分析し、日本語で洞察に満ちた振り返りを書くアシスタントです。
 
 **絶対ルール**:
-1. **ハルシネーション禁止**: ログにないことは書かない。時間やアプリ名を正確に。
-2. **日本語のみ**: 英語や他言語を一切混ぜないでください。数字とアプリ名以外は全て日本語。
-3. **直接出力**: 「## 🎯 今日の振り返り」から始めてください。前置きや説明は不要です。
+1. **ハルシネーション禁止**: ログにないことは絶対に書かない。
+2. **情報の「連鎖」を抽出（最重要）**: 異なるデータソース間の論理的な繋がりを見つけてください。
+   - **調査から実装への流れ**: ブラウザで特定の技術やエラーを調べていた時間と、その後の関連するコード修正（Gitコミット）を繋げてください。
+   - **一貫したプロジェクト進捗**: 複数のアプリ（エディタ、ターミナル、ブラウザ）を跨いだ作業が、一つの成果（コミット）に結びついている様を描写してください。
+3. **脱・定型文化（マンネリ防止）**: 
+   - 「毎日同じようなアドバイス」を避け、その日特有のデータ（最も長く触れていたファイル、特定の検索クエリ、コミットの質）に焦点を当ててください。
+   - 「集中しましょう」「休憩を取りましょう」といった汎用的な言葉ではなく、「今日の〇〇プロジェクトの進捗は、××の理由で加速/停滞していた」といった、その日だけの具体的な分析を行ってください。
+4. **継続性の重視**: 「昨日のコンテキスト」を参照し、進行中のタスクが今日どこまで進んだか、課題は解消されたかを分析してください。
+5. **客観的かつ建設的なフィードバック**: 
+   - 「この時間は非常に集中できており、成果も伴っている」
+   - 「調べ物の時間が長引いて実装が停滞している可能性がある」
+   - 「頻繁なコンテキストスイッチ（数分おきのアプリ切り替え）が記録されており、深い集中を妨げているかもしれない」
+   など、ユーザーが自分の作業習慣を改善できるような具体的なアドバイスを含めてください。
+6. **日本語のみ**: 英語や他言語を一切混ぜないでください。
+7. **直接出力**: 「## 🎯 今日の振り返り」から始めてください。
 
-**用語定義**（必ず守ること）:
-- 「Antigravity」「Antigravity.exe」= AIアシスタントツール（エディタ/IDE）。**開発プロジェクトではない**。ウィンドウタイトルに「mojiban - Antigravity - ファイル名」と表示される場合、作業対象は「mojiban」プロジェクトであり、Antigravityはツール名。
-- 「AtCoder」= 競技プログラミングサイト。ブラウザでAtCoderのページを見ている場合は「競技プログラミングの学習」と記述。
-- 「floorp.exe」= ウェブブラウザ。
-- 「Code.exe」= Visual Studio Code（エディタ）。
+**用語定義**:
+- 「Antigravity」「Antigravity.exe」= AIツール。
+- 「floorp.exe」「chrome.exe」「msedge.exe」= ブラウザ。
 """
 
 PROMPT_USER = """
-{date} の活動ログ:
+【{date} の真実】
+■ 活動タイムライン:
 {timeline_text}
 
-時間統計:
+■ 時間統計:
 {stats_text}
 
----
-今日の Git コミット:
+■ Git コミット:
 {git_text}
 
----
-昨日のコンテキスト:
+■ 昨日のコンテキスト（継続性の確認）:
 {yesterday_context}
 
-過去のパターン:
+■ 過去の知見 (RAG):
 {rag_context}
----
 
-以下のMarkdown形式で振り返りを出力してください。日本語のみで書いてください。
+---
+【出力指示】
+今日の「活動」と「成果」の間の**因果関係や繋がり**を明らかにする、詳細な振り返りを作成してください。
+**マンネリ化した定型的なFBは不要です。** 今日のログからしか読み取れない「特筆すべきパターンや変化」を一つ以上見つけ出し、深く掘り下げてください。
 
 ## 🎯 今日の振り返り
 
 ### 生産性スコア: X/10
-[作業時間と集中の度合いに基づいた短い評価理由]
+[集中度、成果の質、昨日からの進捗、作業の効率性を多角的に評価。]
 
 ### 要約
-[2-3文で簡潔に。ログにある事実のみ。]
+[活動と成果を糸で紡ぐような4-5文のストーリー。「〇〇の調査を経て、△△の実装を完了させた」といったプロセスの繋がりを具体的に記述してください。]
 
 ### 💡 洞察
-- [データに基づく洞察を1-2個]
+[データから読み取れるユーザーの行動特性や、作業の「流れ」に関する深い分析を2つ。汎用的なアドバイスは避け、今日のデータに基づいた独自の気づきを記述してください。]
 
 ### 🚀 明日のフォーカス
-- [具体的な推奨事項を1つ]
+- [今日の反省や成果を踏まえた、明日一番に取り組むべき具体的な1アクション。]
 """
 
 
@@ -241,11 +252,20 @@ class TimelineVisualizer:
         for i in range(1, len(temp_blocks)):
             next_block = temp_blocks[i]
             
-            # Time gap check (if logs have gaps)
-            # Assuming contiguous for now or handled by start/end timestamps
+            # Time gap check (Important to prevent hallucination from idle apps)
+            # If there is a gap > 30 minutes, do not merge even if same category
+            try:
+                curr_end = datetime.datetime.fromisoformat(current['end'].replace('Z', '+00:00'))
+                next_start = datetime.datetime.fromisoformat(next_block['start'].replace('Z', '+00:00'))
+                gap_seconds = (next_start - curr_end).total_seconds()
+                is_large_gap = gap_seconds > 1800 # 30 minutes
+            except:
+                is_large_gap = False
 
-            # Merge Condition 1: Same Activity
-            if current['category'] == next_block['category'] and current['activity'] == next_block['activity']:
+            # Merge Condition 1: Same Activity AND no large gap
+            if (current['category'] == next_block['category'] and 
+                current['activity'] == next_block['activity'] and 
+                not is_large_gap):
                 current['end'] = next_block['end']
                 current['duration'] += next_block['duration']
                 # Append title if unique and important? Simplified for now.
@@ -255,7 +275,7 @@ class TimelineVisualizer:
             is_noise = next_block['duration'] < 30 # 30 seconds threshold
             is_compatible = (current['category'] == "💻 Work") and (next_block['category'] != "🎮 Entertainment")
             
-            if is_noise and is_compatible:
+            if is_noise and is_compatible and not is_large_gap:
                 # Absorb the noise
                 current['end'] = next_block['end']
                 current['duration'] += next_block['duration']
@@ -291,20 +311,16 @@ class TimelineVisualizer:
             duration_min = int(b['duration'] / 60)
             if duration_min < 5: continue # Skip short activities (less than 5 min)
 
-            # Format: > [!check] 💻 **Coding** (09:00 - 10:00) 60m
-            #         > Working on Antigravity
-            
-            # Choose callout type based on category
-            callout_type = "example" # default
-            if "Work" in b['category']: callout_type = "abstract" # cyan
-            if "Break" in b['category']: callout_type = "success" # green
-            if "Comms" in b['category']: callout_type = "quote" # grey
+            # Format: ### 💻 **Coding** (09:00 - 10:00) `60 min`
+            #         - **App**: *Visual Studio Code*
+            #         - **Detail**: Project - FileName
             
             title_clean = b['title'].replace('[', '(').replace(']', ')')
             
-            lines.append(f"> [!{callout_type}] {b['icon']} **{b['activity']}** ({s_str} - {e_str}) `{duration_min} min`")
-            lines.append(f"> *{b['app']}*: {title_clean}")
-            lines.append(">") # Spacer
+            lines.append(f"### {b['icon']} **{b['activity']}** ({s_str} - {e_str}) `{duration_min} min`")
+            lines.append(f"- **App**: *{b['app']}*")
+            lines.append(f"- **Detail**: {title_clean}")
+            lines.append("") # Blank line to separate entries
 
         return "\n".join(lines)
 
@@ -558,36 +574,34 @@ def process_logs(log_file: Path):
     
     # 0. Extract Git Activity (Task 2.1)
     git_activity = data.get("git_activity", [])
-    git_text = ""
-    git_md_section = ""
+    git_text = ""       # For LLM prompt
+    git_md_footer = ""   # For markdown display at bottom
     
     if git_activity:
-        git_lines = []
-        git_md_lines = ["## 🔨 今日のコミット\n"]
+        git_lines_for_llm = []
+        git_footer_lines = []
         
         for repo_data in git_activity:
             repo_name = repo_data.get("repo", "Unknown")
             commits = repo_data.get("commits", [])
             
             if commits:
-                git_md_lines.append(f"### {repo_name}")
+                if git_footer_lines:
+                    git_footer_lines.append("") 
+                git_footer_lines.append(f"### 🔨 {repo_name}")
                 for c in commits:
                     msg = c.get("message", "")
-                    h = c.get("hash", "")
                     ts = c.get("timestamp", "")
-                    # Extract time from timestamp like "2026-02-23 23:00:00 +0900"
                     time_str = ts.split(" ")[1][:5] if " " in ts else ""
                     
-                    line = f"- `{h}` {msg} ({time_str})"
-                    git_lines.append(f"[{repo_name}] {msg} ({time_str})")
-                    git_md_lines.append(line)
-                git_md_lines.append("") # Spacer
+                    git_lines_for_llm.append(f"[{repo_name}] {msg} ({time_str})")
+                    git_footer_lines.append(f"- {msg} ({time_str})")
         
-        git_text = "\n".join(git_lines) if git_lines else "(No commits today)"
-        git_md_section = "\n".join(git_md_lines)
+        git_text = "\n".join(git_lines_for_llm) if git_lines_for_llm else "(No commits today)"
+        git_md_footer = "\n".join(git_footer_lines)
     else:
         git_text = "(No git activity recorded)"
-        git_md_section = "" # Don't show section if empty
+        git_md_footer = "> [!NOTE] 本日の Git コミットはありません。"
 
     # 1. Visualize & Categorize
     timeline_raw = data.get("timeline", [])
@@ -767,8 +781,6 @@ tags: [daily, digital_twin]
 {diag_md}
 {summary}
 
-{git_md_section}
-
 ## 📊 Time Distribution
 {viz.generate_stats_table()}
 
@@ -777,6 +789,9 @@ tags: [daily, digital_twin]
 
 ## ⏰ Detailed Activities
 {viz.generate_markdown()}
+
+## 🛠️ Git Activity
+{git_md_footer}
 """
 
     with open(md_path, "w", encoding="utf-8") as f:
