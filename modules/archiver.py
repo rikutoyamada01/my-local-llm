@@ -43,18 +43,24 @@ client = ollama.Client(host=cfg.host)
 SAMPLES_DIR = DATA_DIR / "samples"
 
 PROMPT_WEEKLY = """
-You are a personal project manager analyzing the past week's logs ({start_date} to {end_date}).
-Create a factual weekly summary. Do NOT invent metrics or mix up projects.
+Analyze the past week's logs ({start_date} to {end_date}) provided below. Create a factual weekly executive summary.
 
-**Analysis Framework**:
+[Daily Summaries]
+{summaries}
+
+[参考情報：過去の経緯]
+{rag_context}
+
+---
+
+**Analysis Instructions**:
 1. **Key Achievements**: What was actually finished? (Cite filenames/commits if possible)
-2. **Project Updates**:
-   - Separate "Antigravity" work from "University/Assignments" (e.g., Raspberry Pi tasks).
-   - List specific progress for each.
+2. **Project Updates**: Separate "Antigravity" work from "University/Assignments" (e.g., Raspberry Pi tasks). List specific progress for each.
 3. **Learnings**: Technical or process definitions learned.
 4. **Blockers**: What went wrong?
 
 **Required Output Structure in Japanese**:
+(Do NOT invent metrics, mix up projects, or include Gantt charts, Time Distribution tables, or Detailed Activities. Only follow this exact markdown structure:)
 
 ## 📊 週次データ
 - **主要な取り組み**: [リスト]
@@ -71,6 +77,7 @@ Create a factual weekly summary. Do NOT invent metrics or mix up projects.
 **注意**:
 - Antigravity(Local LLM) と Raspberry Pi(課題) は混同しないこと。
 - 正確なログのみに基づき、推測で数値を書かないこと。
+- タイムラインやガントチャート (Gantt chart) は絶対に含めないこと。
 
 ## 💡 今週の学び (Learnings)
 - [Context] -> [Knowledge]
@@ -80,12 +87,6 @@ Create a factual weekly summary. Do NOT invent metrics or mix up projects.
 
 **CORRECT EXAMPLE**:
 {examples}
-
-Daily Summaries:
-{summaries}
-
-[参考情報：過去の経緯]
-{rag_context}
 """
 
 def load_examples(type_name: str) -> str:
@@ -187,6 +188,7 @@ def create_weekly_summary():
             logger.warning(f"Time-Offset RAG failed: {e}")
         
         try:
+            logger.info("Sending request to Ollama for weekly summary (This might take a few minutes)...")
             response = client.chat(model=cfg.model, messages=[
                 {"role": "system", "content": "You are a personal assistant creating a weekly executive summary."},
                 {"role": "user", "content": PROMPT_WEEKLY.format(
