@@ -100,6 +100,11 @@ try {
 
     # 1. Perception Phase (Host)
     Write-Log "Step 1: Running Sensor (Host)..."
+    
+    # 1.a Stop Audio Sensor if running
+    Write-Log "Stopping Audio Sensor..."
+    Stop-Process -Name "python" -PassThru -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match "audio_sensor\.py" } | Stop-Process -Force -ErrorAction SilentlyContinue
+    
     python -u "$ProjectRoot\modules\sensor.py"
     if ($LASTEXITCODE -ne 0) { throw "Sensor failed with exit code $LASTEXITCODE" }
 
@@ -139,7 +144,11 @@ try {
 
     Write-Log "=== Batch Completed Successfully ==="
     
-    # 5. Sleep Logic
+    # 5. Restart Audio Sensor (Host)
+    Write-Log "Step 5: Restarting Audio Sensor (Host)..."
+    Start-Process -FilePath "python" -ArgumentList "-u", "$ProjectRoot\modules\audio_sensor.py" -WindowStyle Hidden
+    
+    # 6. Sleep Logic
     if (-not $NoSleep) {
         Write-Log "Going to Sleep in 10 seconds..."
         Allow-Sleep # Reset state before suspending

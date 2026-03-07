@@ -21,6 +21,7 @@ This document outlines the hardware requirements, automated installation steps, 
 -   **Docker Desktop**: Installed with WSL2 backend enabled.
 -   **NVIDIA Container Toolkit**: For GPU passthrough to Docker.
 -   **Python 3.10+**: Installed on Windows (Host) for the Sensor.
+    -   *Audio Dependencies*: `pip install faster-whisper keyboard sounddevice numpy`
 -   **Git**: For version control.
 -   **ActivityWatch**: Installed on Host (Windows).
 
@@ -196,3 +197,17 @@ To generate daily summaries automatically and manage power:
 
 **Note**: The script is now configured to **automatically start Docker Desktop** if it is not running, and **put the PC to sleep** after the job finishes.
 - To test *without* sleeping, verify via terminal: `.\run_nightly_batch.ps1 -NoSleep`
+
+### 6.3 Auto-Start Audio Sensor (Background Whisper)
+To record voice memos and context via a global hotkey (`Ctrl+Shift+R`) completely in the background:
+
+1. **Create Basic Task**:
+   - **Name**: `DigitalTwinAudioSensor`
+   - **Trigger**: "When I log on"
+   - **Action**: "Start a program"
+     - **Program/script**: `wscript.exe`
+     - **Add arguments**: `"C:\...\my-local-llm\start_audio_sensor.vbs"` (Replace with your actual absolute path)
+   - **Conditions**: Uncheck "Start the task only if the computer is on AC power".
+   - **Settings**: Check "Run task as soon as possible after a scheduled start is missed".
+
+This will silently launch the `audio_sensor.py` daemon without any visible console window.

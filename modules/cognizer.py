@@ -101,6 +101,9 @@ PROMPT_USER = """
 ■ 昨日のコンテキスト（継続性の確認）:
 {yesterday_context}
 
+■ 今日の思考・音声メモ (Voice Memos):
+{voice_context}
+
 ■ 過去の知見 (RAG):
 {rag_context}
 
@@ -637,6 +640,23 @@ def process_logs(log_file: Path):
     except Exception as e:
         logger.warning(f"Failed to load yesterday's journal: {e}")
         yesterday_context = "(Unable to load yesterday's journal)"
+        
+    # 2.5. Get Today's Voice Transcripts
+    voice_context = ""
+    try:
+        voice_file = DATA_DIR / "audio" / "transcripts" / f"{safe_date}_voice.txt"
+        if voice_file.exists():
+            with open(voice_file, 'r', encoding='utf-8') as f:
+                voice_content = f.read().strip()
+                if voice_content:
+                    voice_context = voice_content
+                else:
+                    voice_context = "(No voice memos recorded today)"
+        else:
+            voice_context = "(No voice memos recorded today)"
+    except Exception as e:
+        logger.warning(f"Failed to load voice transcripts: {e}")
+        voice_context = "(Unable to load voice transcripts)"
     
     # 3. RAG: Retrieve Historical Insights
     rag_context = ""
@@ -723,6 +743,7 @@ def process_logs(log_file: Path):
                 stats_text=stats_text,
                 git_text=git_text,
                 yesterday_context=yesterday_context,
+                voice_context=voice_context,
                 rag_context=rag_context
             )}
         ], options={"num_ctx": 8192, "num_predict": 2048}, keep_alive=0)
@@ -750,6 +771,7 @@ def process_logs(log_file: Path):
                         stats_text=stats_text,
                         git_text=git_text,
                         yesterday_context=yesterday_context,
+                        voice_context=voice_context,
                         rag_context=rag_context
                     )}
                 ], options={"num_ctx": 8192, "num_predict": 1024}, keep_alive=0)

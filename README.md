@@ -14,7 +14,7 @@ Based on Research 001 & 002, the system consists of 4 core layers connected by a
 
 | Layer | Function | Tech Stack |
 | :--- | :--- | :--- |
-| **1. Perception** | Collect raw activity logs & browser history. | `ActivityWatch`, `Python` (Robust Shadow Copy) |
+| **1. Perception** | Collect raw activity logs, browser history & voice memos. | `ActivityWatch`, `faster-whisper`, `Python` |
 | **2. Cognition** | Compress raw logs into structured Daily/Weekly summaries. | `Ollama`, `LangChain` (Smart Token Budgeting) |
 | **3. Memory** | Store structured facts (RAG) & narratives (Obsidian). | `Obsidian` (Markdown), `ChromaDB` (Vector) |
 | **4. Persona** | Continual learning of user's voice/thinking style. | `Unsloth` (QLoRA), `Replay Buffer` (WSL2) |
@@ -35,6 +35,11 @@ Based on Research 001 & 002, the system consists of 4 core layers connected by a
 - **Robust Shadow Copy**: Implements specific retry logic (`tenacity`) for copying locked Chrome/Edge history files.
 - **Fallback Mode**: Gracefully degrades to use only ActivityWatch data if browser history is inaccessible.
 - **Privacy Filter**: RegEx-based sanitizer for emails, credit cards, and blacklist for private domains.
+
+#### [NEW] `modules/audio_sensor.py`
+- Background daemon capturing voice context via push-to-talk hotkey (`Ctrl+Shift+R`).
+- Converts spoken thoughts to text locally using `faster-whisper` without keeping the microphone open constantly.
+- Ingested by `cognizer.py` to enrich the daily summary.
 
 #### [NEW] `config/secrets.yaml`
 - Define sensitive keywords, exclusion rules, and browser profile paths.
