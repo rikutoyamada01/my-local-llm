@@ -17,6 +17,34 @@ function Write-Log {
     Write-Host $LogEntry
 }
 
+function Get-PythonPath {
+    # 1. Check if 'python' works and isn't the broken Store alias
+    try {
+        $exe = (python -c "import sys; print(sys.executable)" 2>$null)
+        if ($exe -and $exe -notmatch "WindowsApps") { return "python" }
+    } catch {}
+
+    # 2. Check for common installation paths
+    $commonPaths = @(
+        "$env:LocalAppData\Programs\Python\Python312\python.exe",
+        "$env:LocalAppData\Programs\Python\Python311\python.exe",
+        "C:\Program Files\Python312\python.exe",
+        "C:\Program Files\Python311\python.exe"
+    )
+    foreach ($path in $commonPaths) {
+        if (Test-Path $path) { return $path }
+    }
+
+    # 3. Fallback to py launcher if available
+    if (Get-Command py -ErrorAction SilentlyContinue) { return "py" }
+
+    # Final fallback: just 'python' (will likely fail if we reached here, but better than nothing)
+    return "python"
+}
+
+$PythonExe = Get-PythonPath
+Write-Log "PowerShell: Using Python at '$PythonExe'"
+
 # --- Power Management (Prevent Sleep) ---
 $signature = @"
 [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
@@ -105,7 +133,7 @@ try {
     Write-Log "Stopping Audio Sensor..."
     Stop-Process -Name "python" -PassThru -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match "audio_sensor\.py" } | Stop-Process -Force -ErrorAction SilentlyContinue
     
-    python -u "$ProjectRoot\modules\sensor.py"
+    & $PythonExe -u "$ProjectRoot\modules\sensor.py"
     if ($LASTEXITCODE -ne 0) { throw "Sensor failed with exit code $LASTEXITCODE" }
 
     # 2. Cognition Phase (Docker)
@@ -146,7 +174,7 @@ try {
     
     # 5. Restart Audio Sensor (Host)
     Write-Log "Step 5: Restarting Audio Sensor (Host)..."
-    Start-Process -FilePath "python" -ArgumentList "-u", "$ProjectRoot\modules\audio_sensor.py" -WindowStyle Hidden
+    Start-Process -FilePath $PythonExe -ArgumentList "-u", "$ProjectRoot\modules\audio_sensor.py" -WindowStyle Hidden
     
     # 6. Sleep Logic
     if (-not $NoSleep) {
